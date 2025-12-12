@@ -35,11 +35,12 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
   // Basic CORS support for separate frontend origin (e.g. Netlify)
-  const allowedOrigin = process.env.CORS_ORIGIN;
+  const allowedOrigins = process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(",") : [];
   app.use((req, res, next) => {
     const origin = req.headers.origin as string | undefined;
 
-    if (origin && (allowedOrigin === "*" || (allowedOrigin && origin === allowedOrigin))) {
+    // Allow specific origins or localhost for development
+    if (origin && (allowedOrigins.includes(origin) || origin.includes("localhost"))) {
       res.header("Access-Control-Allow-Origin", origin);
       res.header("Access-Control-Allow-Credentials", "true");
       res.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
