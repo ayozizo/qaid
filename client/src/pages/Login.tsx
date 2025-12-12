@@ -1,13 +1,8 @@
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useState } from "react";
-import { useSearchParams, useLocation } from "wouter";
+import { useLocation } from "wouter";
 import { Scale, Sparkles, Eye, EyeOff, Mail, User, Shield } from "lucide-react";
 
 export default function Login() {
-  const [searchParams] = useSearchParams();
   const [, setLocation] = useLocation();
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -20,6 +15,7 @@ export default function Login() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
+    console.log('[Login] Submitting form with data:', { name: formData.name, email: formData.email });
 
     try {
       // Create a form element and submit it to handle the redirect properly
@@ -46,6 +42,8 @@ export default function Login() {
       passwordField.value = formData.password;
       form.appendChild(passwordField);
       
+      console.log('[Login] Submitting form to:', form.action);
+      
       // Submit the form
       document.body.appendChild(form);
       form.submit();
@@ -64,11 +62,12 @@ export default function Login() {
     });
   };
 
+  console.log('[Login] Login page rendered');
+
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       {/* Background Pattern */}
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-gold/5 via-background to-background" />
-      <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiNEMkFGMzciIGZpbGwtb3BhY2l0eT0iMC4wMyI+PHBhdGggZD0iTTM2IDM0djIrSDI0di0yaDEyek0zNiAyNHYySDI0di0yaDEyeiIvPjwvZz48L2c+PC9zdmc+')] opacity-50" />
       
       <div className="relative w-full max-w-md">
         {/* Logo and Title */}
@@ -83,132 +82,119 @@ export default function Login() {
         </div>
 
         {/* Login Card */}
-        <Card className="border-gold/20 shadow-lg">
-          <CardHeader className="text-center pb-4">
-            <CardTitle className="text-2xl font-bold text-foreground">تسجيل الدخول</CardTitle>
-            <CardDescription>
+        <div className="bg-card text-card-foreground border rounded-xl shadow-sm p-6">
+          <div className="text-center pb-4">
+            <h2 className="text-2xl font-bold text-foreground">تسجيل الدخول</h2>
+            <p className="text-muted-foreground text-sm mt-2">
               أدخل بياناتك للوصول إلى حسابك
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {/* Name Field */}
-              <div className="space-y-2">
-                <Label htmlFor="name" className="text-right flex items-center gap-2">
-                  <User className="h-4 w-4" />
-                  الاسم الكامل
-                </Label>
-                <Input
-                  id="name"
-                  name="name"
-                  type="text"
-                  placeholder="أدخل اسمك الكامل"
-                  value={formData.name}
+            </p>
+          </div>
+          
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Name Field */}
+            <div className="space-y-2">
+              <label htmlFor="name" className="text-right flex items-center gap-2 text-sm font-medium">
+                <User className="h-4 w-4" />
+                الاسم الكامل
+              </label>
+              <input
+                id="name"
+                name="name"
+                type="text"
+                placeholder="أدخل اسمك الكامل"
+                value={formData.name}
+                onChange={handleInputChange}
+                required
+                className="w-full p-3 border rounded-lg text-right"
+                dir="rtl"
+              />
+            </div>
+
+            {/* Email Field */}
+            <div className="space-y-2">
+              <label htmlFor="email" className="text-right flex items-center gap-2 text-sm font-medium">
+                <Mail className="h-4 w-4" />
+                البريد الإلكتروني
+              </label>
+              <input
+                id="email"
+                name="email"
+                type="email"
+                placeholder="أدخل بريدك الإلكتروني"
+                value={formData.email}
+                onChange={handleInputChange}
+                required
+                className="w-full p-3 border rounded-lg text-right"
+                dir="rtl"
+              />
+            </div>
+
+            {/* Password Field */}
+            <div className="space-y-2">
+              <label htmlFor="password" className="text-right flex items-center gap-2 text-sm font-medium">
+                كلمة المرور
+              </label>
+              <div className="relative">
+                <input
+                  id="password"
+                  name="password"
+                  type={showPassword ? "text" : "password"}
+                  placeholder="أدخل كلمة المرور"
+                  value={formData.password}
                   onChange={handleInputChange}
                   required
-                  className="text-right"
+                  className="w-full p-3 pr-10 border rounded-lg text-right"
                   dir="rtl"
                 />
-              </div>
-
-              {/* Email Field */}
-              <div className="space-y-2">
-                <Label htmlFor="email" className="text-right flex items-center gap-2">
-                  <Mail className="h-4 w-4" />
-                  البريد الإلكتروني
-                </Label>
-                <Input
-                  id="email"
-                  name="email"
-                  type="email"
-                  placeholder="أدخل بريدك الإلكتروني"
-                  value={formData.email}
-                  onChange={handleInputChange}
-                  required
-                  className="text-right"
-                  dir="rtl"
-                />
-              </div>
-
-              {/* Password Field */}
-              <div className="space-y-2">
-                <Label htmlFor="password" className="text-right flex items-center gap-2">
-                  كلمة المرور
-                </Label>
-                <div className="relative">
-                  <Input
-                    id="password"
-                    name="password"
-                    type={showPassword ? "text" : "password"}
-                    placeholder="أدخل كلمة المرور"
-                    value={formData.password}
-                    onChange={handleInputChange}
-                    required
-                    className="text-right pr-10"
-                    dir="rtl"
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="absolute left-0 top-0 h-full px-3 hover:bg-transparent"
-                    onClick={() => setShowPassword(!showPassword)}
-                  >
-                    {showPassword ? (
-                      <EyeOff className="h-4 w-4 text-muted-foreground" />
-                    ) : (
-                      <Eye className="h-4 w-4 text-muted-foreground" />
-                    )}
-                  </Button>
-                </div>
-              </div>
-
-              {/* Submit Button */}
-              <Button 
-                type="submit" 
-                className="w-full bg-gold hover:bg-gold/90 text-black font-semibold"
-                disabled={isLoading}
-              >
-                {isLoading ? (
-                  <div className="flex items-center gap-2">
-                    <div className="animate-spin w-4 h-4 border-2 border-black border-t-transparent rounded-full" />
-                    جاري تسجيل الدخول...
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="h-4 w-4" />
-                    تسجيل الدخول
-                  </div>
-                )}
-              </Button>
-            </form>
-
-            {/* Additional Options */}
-            <div className="mt-6 text-center">
-              <p className="text-sm text-muted-foreground">
-                ليس لديك حساب؟{" "}
-                <button className="text-gold hover:text-gold/80 font-medium">
-                  تواصل معنا
+                <button
+                  type="button"
+                  className="absolute left-0 top-0 h-full px-3"
+                  onClick={() => setShowPassword(!showPassword)}
+                >
+                  {showPassword ? (
+                    <EyeOff className="h-4 w-4 text-muted-foreground" />
+                  ) : (
+                    <Eye className="h-4 w-4 text-muted-foreground" />
+                  )}
                 </button>
-              </p>
-            </div>
-
-            {/* Security Note */}
-            <div className="mt-6 p-4 bg-gold/5 rounded-lg border border-gold/20">
-              <div className="flex items-start gap-3">
-                <Shield className="h-5 w-5 text-gold mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="text-sm text-foreground font-medium mb-1">
-                    أمان وموثوقية
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    بياناتك محمية بأحدث تقنيات التشفير والخصوصية
-                  </p>
-                </div>
               </div>
             </div>
-          </CardContent>
-        </Card>
+
+            {/* Submit Button */}
+            <button 
+              type="submit" 
+              className="w-full bg-gold hover:bg-gold/90 text-black font-semibold py-3 rounded-lg flex items-center justify-center gap-2"
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <div className="flex items-center gap-2">
+                  <div className="animate-spin w-4 h-4 border-2 border-black border-t-transparent rounded-full" />
+                  جاري تسجيل الدخول...
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <Sparkles className="h-4 w-4" />
+                  تسجيل الدخول
+                </div>
+              )}
+            </button>
+          </form>
+
+          {/* Security Note */}
+          <div className="mt-6 p-4 bg-gold/5 rounded-lg border border-gold/20">
+            <div className="flex items-start gap-3">
+              <Shield className="h-5 w-5 text-gold mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="text-sm text-foreground font-medium mb-1">
+                  أمان وموثوقية
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  بياناتك محمية بأحدث تقنيات التشفير والخصوصية
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
 
         {/* Footer */}
         <div className="text-center mt-8">
