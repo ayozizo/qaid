@@ -262,7 +262,53 @@ class SDKServer {
   }
 
   async authenticateRequest(req: Request): Promise<User> {
-    // Regular authentication flow
+    // Check for Bearer token in Authorization header first
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7);
+      console.log("[Auth] Found Bearer token in header");
+      
+      try {
+        const session = await this.verifySession(token);
+        if (session) {
+          const sessionUserId = session.openId;
+          const signedInAt = new Date();
+          let user = await db.getUserByOpenId(sessionUserId);
+
+          if (!user) {
+            // Create user if not exists
+            if (sessionUserId.startsWith("local-")) {
+              console.log("[Auth] Creating local user for:", sessionUserId);
+              await db.upsertUser({
+                openId: sessionUserId,
+                name: session.name,
+                email: null,
+                loginMethod: "local",
+                lastSignedIn: signedInAt,
+              });
+              user = await db.getUserByOpenId(sessionUserId);
+            } else {
+              throw ForbiddenError("User not found");
+            }
+          }
+
+          if (!user) {
+            throw ForbiddenError("User not found");
+          }
+
+          await db.upsertUser({
+            openId: user.openId,
+            lastSignedIn: signedInAt,
+          });
+
+          return user;
+        }
+      } catch (error) {
+        console.error("[Auth] Bearer token verification failed", error);
+      }
+    }
+    
+    // Fallback to cookie-based authentication
     const cookies = this.parseCookies(req.headers.cookie);
     const sessionCookie = cookies.get(COOKIE_NAME);
     const session = await this.verifySession(sessionCookie);
@@ -319,7 +365,7 @@ class SDKServer {
     });
 
     return user;
-  }
+  }  
 }
 
 export const sdk = new SDKServer();

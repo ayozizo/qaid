@@ -11,6 +11,23 @@ import "./index.css";
 const queryClient = new QueryClient();
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
+// Handle token from URL query parameter
+const handleTokenFromUrl = () => {
+  const urlParams = new URLSearchParams(window.location.search);
+  const token = urlParams.get('token');
+  
+  if (token) {
+    // Store token in localStorage
+    localStorage.setItem('auth_token', token);
+    // Clean the URL
+    window.history.replaceState({}, document.title, window.location.pathname);
+    console.log('[Auth] Token stored from URL');
+  }
+};
+
+// Handle token from URL on app load
+handleTokenFromUrl();
+
 const redirectToLoginIfUnauthorized = (error: unknown) => {
   if (!(error instanceof TRPCClientError)) return;
   if (typeof window === "undefined") return;
@@ -19,6 +36,8 @@ const redirectToLoginIfUnauthorized = (error: unknown) => {
 
   if (!isUnauthorized) return;
 
+  // Clear token and redirect to login
+  localStorage.removeItem('auth_token');
   window.location.href = getLoginUrl();
 };
 
@@ -44,8 +63,16 @@ const trpcClient = trpc.createClient({
       url: API_BASE_URL ? `${API_BASE_URL}/api/trpc` : "/api/trpc",
       transformer: superjson,
       fetch(input, init) {
+        // Add token to headers if available
+        const token = localStorage.getItem('auth_token');
+        const headers = {
+          ...(init?.headers || {}),
+          ...(token && { Authorization: `Bearer ${token}` }),
+        };
+        
         return globalThis.fetch(input, {
           ...(init ?? {}),
+          headers,
           credentials: "include",
         });
       },
