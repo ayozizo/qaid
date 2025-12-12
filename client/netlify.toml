@@ -8,3 +8,8 @@
   VITE_BACKEND_ORIGIN = "https://qaid-production.up.railway.app"
   VITE_OAUTH_PORTAL_URL = ""
   VITE_APP_ID = ""
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
