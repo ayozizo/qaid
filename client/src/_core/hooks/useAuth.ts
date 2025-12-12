@@ -26,18 +26,28 @@ export function useAuth(options?: UseAuthOptions) {
 
   const logout = useCallback(async () => {
     try {
+      // Clear the token from localStorage first
+      localStorage.removeItem('auth_token');
+      
       await logoutMutation.mutateAsync();
     } catch (error: unknown) {
       if (
         error instanceof TRPCClientError &&
         error.data?.code === "UNAUTHORIZED"
       ) {
+        // Still clear local token even if server logout fails
+        localStorage.removeItem('auth_token');
         return;
       }
       throw error;
     } finally {
       utils.auth.me.setData(undefined, null);
       await utils.auth.me.invalidate();
+      
+      // Redirect to home page after logout
+      if (typeof window !== "undefined") {
+        window.location.href = "/";
+      }
     }
   }, [logoutMutation, utils]);
 

@@ -36,9 +36,9 @@ const redirectToLoginIfUnauthorized = (error: unknown) => {
 
   if (!isUnauthorized) return;
 
-  // Clear token and redirect to login
+  // Clear token and redirect to home page
   localStorage.removeItem('auth_token');
-  window.location.href = getLoginUrl();
+  window.location.href = "/";
 };
 
 queryClient.getQueryCache().subscribe(event => {
