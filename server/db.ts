@@ -1,5 +1,5 @@
 import { eq, desc, and, like, or, sql, gte, lte, count } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/mysql2";
+import { drizzle } from "drizzle-orm/postgres-js";
 import {
   InsertUser,
   users,
@@ -38,7 +38,9 @@ const inMemoryUsers = new Map<string, any>();
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
-      _db = drizzle(process.env.DATABASE_URL);
+      const postgres = require("postgres");
+      const client = postgres(process.env.DATABASE_URL);
+      _db = drizzle(client);
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
       _db = null;
