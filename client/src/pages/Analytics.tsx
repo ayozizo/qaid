@@ -41,33 +41,31 @@ const COLORS = {
   cyan: "#06b6d4",
 };
 
-const caseTypeData = [
-  { name: "تجاري", value: 35, color: COLORS.blue },
-  { name: "جنائي", value: 20, color: COLORS.red },
-  { name: "عمالي", value: 25, color: COLORS.green },
-  { name: "أحوال شخصية", value: 15, color: COLORS.purple },
-  { name: "إداري", value: 5, color: COLORS.orange },
-];
-
-const monthlyData = [
-  { month: "يناير", cases: 12, revenue: 45000 },
-  { month: "فبراير", cases: 15, revenue: 52000 },
-  { month: "مارس", cases: 18, revenue: 61000 },
-  { month: "أبريل", cases: 14, revenue: 48000 },
-  { month: "مايو", cases: 22, revenue: 78000 },
-  { month: "يونيو", cases: 19, revenue: 65000 },
-];
-
-const caseOutcomeData = [
-  { name: "مكسوبة", value: 65, color: COLORS.green },
-  { name: "خاسرة", value: 15, color: COLORS.red },
-  { name: "تسوية", value: 20, color: COLORS.gold },
-];
-
 export default function Analytics() {
   const { data: stats, isLoading } = trpc.dashboard.stats.useQuery();
 
   const winRate = stats?.winRate ?? 0;
+  const totalCases = stats?.totalCases ?? 0;
+  const wonCases = stats?.wonCases ?? 0;
+  const lostCases = stats?.lostCases ?? 0;
+  const pendingCases = stats?.pendingCases ?? 0;
+  const totalRevenue = stats?.totalRevenue ?? 0;
+
+  const monthlyData = [
+    {
+      month: "هذا الشهر",
+      cases: totalCases,
+      revenue: totalRevenue,
+    },
+  ];
+
+  const caseOutcomeData = totalCases
+    ? [
+        { name: "مكسوبة", value: wonCases, color: COLORS.green },
+        { name: "خاسرة", value: lostCases, color: COLORS.red },
+        { name: "قيد المعالجة", value: pendingCases, color: COLORS.gold },
+      ]
+    : [];
 
   return (
     <DashboardLayout>
@@ -92,8 +90,7 @@ export default function Analytics() {
                   <p className="text-sm text-muted-foreground">نسبة النجاح</p>
                   <p className="text-3xl font-bold text-gold mt-1">{winRate}%</p>
                   <div className="flex items-center gap-1 mt-2">
-                    <TrendingUp className="h-3 w-3 text-green-500" />
-                    <span className="text-xs text-green-500">+5% عن الشهر الماضي</span>
+                    <span className="text-xs text-muted-foreground">-</span>
                   </div>
                 </div>
                 <div className="w-12 h-12 rounded-xl bg-gold/10 flex items-center justify-center">
@@ -112,8 +109,7 @@ export default function Analytics() {
                     {stats?.activeCases ?? 0}
                   </p>
                   <div className="flex items-center gap-1 mt-2">
-                    <TrendingUp className="h-3 w-3 text-green-500" />
-                    <span className="text-xs text-green-500">+3 قضايا جديدة</span>
+                    <span className="text-xs text-muted-foreground">-</span>
                   </div>
                 </div>
                 <div className="w-12 h-12 rounded-xl bg-blue-500/10 flex items-center justify-center">
@@ -132,8 +128,7 @@ export default function Analytics() {
                     {stats?.totalClients ?? 0}
                   </p>
                   <div className="flex items-center gap-1 mt-2">
-                    <TrendingUp className="h-3 w-3 text-green-500" />
-                    <span className="text-xs text-green-500">+8 هذا الشهر</span>
+                    <span className="text-xs text-muted-foreground">-</span>
                   </div>
                 </div>
                 <div className="w-12 h-12 rounded-xl bg-purple-500/10 flex items-center justify-center">
@@ -149,11 +144,10 @@ export default function Analytics() {
                 <div>
                   <p className="text-sm text-muted-foreground">الإيرادات</p>
                   <p className="text-3xl font-bold text-foreground mt-1">
-                    {((stats?.totalRevenue ?? 0) / 100000).toFixed(0)}K
+                    {(totalRevenue / 1000).toFixed(0)}K
                   </p>
                   <div className="flex items-center gap-1 mt-2">
-                    <TrendingUp className="h-3 w-3 text-green-500" />
-                    <span className="text-xs text-green-500">+12% هذا الشهر</span>
+                    <span className="text-xs text-muted-foreground">-</span>
                   </div>
                 </div>
                 <div className="w-12 h-12 rounded-xl bg-green-500/10 flex items-center justify-center">
@@ -213,32 +207,8 @@ export default function Analytics() {
               <CardTitle className="text-lg">توزيع أنواع القضايا</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="h-80 flex items-center">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={caseTypeData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={60}
-                      outerRadius={100}
-                      paddingAngle={5}
-                      dataKey="value"
-                    >
-                      {caseTypeData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: "#1a1a1a",
-                        border: "1px solid #333",
-                        borderRadius: "8px",
-                      }}
-                    />
-                    <Legend />
-                  </PieChart>
-                </ResponsiveContainer>
+              <div className="h-80 flex items-center justify-center">
+                <p className="text-sm text-muted-foreground">لا توجد بيانات كافية لعرض توزيع الأنواع</p>
               </div>
             </CardContent>
           </Card>
@@ -253,29 +223,35 @@ export default function Analytics() {
             </CardHeader>
             <CardContent>
               <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={caseOutcomeData}
-                      cx="50%"
-                      cy="50%"
-                      outerRadius={80}
-                      dataKey="value"
-                      label={({ name, value }) => `${name}: ${value}%`}
-                    >
-                      {caseOutcomeData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: "#1a1a1a",
-                        border: "1px solid #333",
-                        borderRadius: "8px",
-                      }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
+                {caseOutcomeData.length === 0 ? (
+                  <div className="h-full flex items-center justify-center">
+                    <p className="text-sm text-muted-foreground">لا توجد بيانات</p>
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={caseOutcomeData}
+                        cx="50%"
+                        cy="50%"
+                        outerRadius={80}
+                        dataKey="value"
+                        label={({ name, value }) => `${name}: ${value}`}
+                      >
+                        {caseOutcomeData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: "#1a1a1a",
+                          border: "1px solid #333",
+                          borderRadius: "8px",
+                        }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -292,12 +268,12 @@ export default function Analytics() {
                     <span className="text-sm text-muted-foreground">
                       معدل إغلاق القضايا
                     </span>
-                    <span className="text-sm font-medium text-foreground">78%</span>
+                    <span className="text-sm font-medium text-foreground">-</span>
                   </div>
                   <div className="h-2 bg-secondary rounded-full overflow-hidden">
                     <div
                       className="h-full bg-gold rounded-full"
-                      style={{ width: "78%" }}
+                      style={{ width: "0%" }}
                     />
                   </div>
                 </div>
@@ -307,12 +283,12 @@ export default function Analytics() {
                     <span className="text-sm text-muted-foreground">
                       رضا العملاء
                     </span>
-                    <span className="text-sm font-medium text-foreground">92%</span>
+                    <span className="text-sm font-medium text-foreground">-</span>
                   </div>
                   <div className="h-2 bg-secondary rounded-full overflow-hidden">
                     <div
                       className="h-full bg-green-500 rounded-full"
-                      style={{ width: "92%" }}
+                      style={{ width: "0%" }}
                     />
                   </div>
                 </div>
@@ -322,12 +298,12 @@ export default function Analytics() {
                     <span className="text-sm text-muted-foreground">
                       تحصيل المستحقات
                     </span>
-                    <span className="text-sm font-medium text-foreground">85%</span>
+                    <span className="text-sm font-medium text-foreground">-</span>
                   </div>
                   <div className="h-2 bg-secondary rounded-full overflow-hidden">
                     <div
                       className="h-full bg-blue-500 rounded-full"
-                      style={{ width: "85%" }}
+                      style={{ width: "0%" }}
                     />
                   </div>
                 </div>
@@ -337,12 +313,12 @@ export default function Analytics() {
                     <span className="text-sm text-muted-foreground">
                       الالتزام بالمواعيد
                     </span>
-                    <span className="text-sm font-medium text-foreground">95%</span>
+                    <span className="text-sm font-medium text-foreground">-</span>
                   </div>
                   <div className="h-2 bg-secondary rounded-full overflow-hidden">
                     <div
                       className="h-full bg-purple-500 rounded-full"
-                      style={{ width: "95%" }}
+                      style={{ width: "0%" }}
                     />
                   </div>
                 </div>
@@ -362,7 +338,7 @@ export default function Analytics() {
                 <div>
                   <p className="text-sm text-muted-foreground">قضايا مكسوبة</p>
                   <p className="text-2xl font-bold text-green-400">
-                    {Math.round((stats?.totalCases ?? 0) * 0.65)}
+                    {wonCases}
                   </p>
                 </div>
               </div>
@@ -378,7 +354,7 @@ export default function Analytics() {
                 <div>
                   <p className="text-sm text-muted-foreground">قيد المعالجة</p>
                   <p className="text-2xl font-bold text-yellow-400">
-                    {stats?.activeCases ?? 0}
+                    {pendingCases}
                   </p>
                 </div>
               </div>
@@ -394,7 +370,7 @@ export default function Analytics() {
                 <div>
                   <p className="text-sm text-muted-foreground">تسويات</p>
                   <p className="text-2xl font-bold text-gold">
-                    {Math.round((stats?.totalCases ?? 0) * 0.2)}
+                    {0}
                   </p>
                 </div>
               </div>

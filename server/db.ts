@@ -772,6 +772,54 @@ export async function getTimeEntriesByUserId(userId: number) {
   return db.select().from(timeEntries).where(eq(timeEntries.userId, userId)).orderBy(desc(timeEntries.entryDate));
 }
 
+export async function getReportsStats(range?: "week" | "month" | "quarter" | "year") {
+  const db = await getDb();
+  if (!db) {
+    return {
+      totalRevenue: 0,
+      totalExpenses: 0,
+      netProfit: 0,
+      totalCases: 0,
+      wonCases: 0,
+      lostCases: 0,
+      totalClients: 0,
+      newClients: 0,
+    };
+  }
+
+  const invoiceStats = await getInvoiceStats();
+  const caseStats = await getCaseStats();
+  const totalClients = await getClientCount();
+
+  const now = new Date();
+  const start = new Date(now);
+  if (range === "week") start.setDate(now.getDate() - 7);
+  else if (range === "month") start.setMonth(now.getMonth() - 1);
+  else if (range === "quarter") start.setMonth(now.getMonth() - 3);
+  else if (range === "year") start.setFullYear(now.getFullYear() - 1);
+  else start.setMonth(now.getMonth() - 1);
+
+  const newClientsResult = await db
+    .select({ count: count() })
+    .from(clients)
+    .where(gte(clients.createdAt, start));
+
+  const totalRevenue = invoiceStats.paidAmount;
+  const totalExpenses = 0;
+  const netProfit = totalRevenue - totalExpenses;
+
+  return {
+    totalRevenue,
+    totalExpenses,
+    netProfit,
+    totalCases: caseStats.total,
+    wonCases: caseStats.won,
+    lostCases: caseStats.lost,
+    totalClients,
+    newClients: newClientsResult[0]?.count ?? 0,
+  };
+}
+
 // ==================== DASHBOARD STATS ====================
 export async function getDashboardStats() {
   const db = await getDb();
@@ -784,6 +832,9 @@ export async function getDashboardStats() {
     unpaidInvoices: 0,
     winRate: 0,
     totalRevenue: 0,
+    wonCases: 0,
+    lostCases: 0,
+    pendingCases: 0,
   };
   
   const caseStats = await getCaseStats();
@@ -805,5 +856,8 @@ export async function getDashboardStats() {
     unpaidInvoices: invoiceStats.pending + invoiceStats.overdue,
     winRate,
     totalRevenue: invoiceStats.paidAmount,
+    wonCases: caseStats.won,
+    lostCases: caseStats.lost,
+    pendingCases: caseStats.pending,
   };
 }

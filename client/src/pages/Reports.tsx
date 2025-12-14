@@ -14,10 +14,28 @@ import {
 } from "lucide-react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useState } from "react";
+import { trpc } from "@/lib/trpc";
 
 export default function Reports() {
   const [selectedReport, setSelectedReport] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState("month");
+
+  const { data: stats } = trpc.reports.stats.useQuery({
+    range: (dateRange === "custom" ? "month" : (dateRange as any)) as
+      | "week"
+      | "month"
+      | "quarter"
+      | "year",
+  });
+
+  const totalRevenue = stats?.totalRevenue ?? 0;
+  const totalExpenses = stats?.totalExpenses ?? 0;
+  const netProfit = stats?.netProfit ?? totalRevenue - totalExpenses;
+  const totalCases = stats?.totalCases ?? 0;
+  const wonCases = stats?.wonCases ?? 0;
+  const lostCases = stats?.lostCases ?? 0;
+  const totalClients = stats?.totalClients ?? 0;
+  const newClients = stats?.newClients ?? 0;
 
   const reports = [
     {
@@ -26,9 +44,9 @@ export default function Reports() {
       description: "تقرير شامل عن الإيرادات والنفقات",
       icon: DollarSign,
       metrics: [
-        { label: "إجمالي الإيرادات", value: "125,500 ر.س", change: "+15%" },
-        { label: "إجمالي النفقات", value: "35,200 ر.س", change: "-5%" },
-        { label: "الربح الصافي", value: "90,300 ر.س", change: "+22%" },
+        { label: "إجمالي الإيرادات", value: `${totalRevenue.toLocaleString()} ر.س`, change: "-" },
+        { label: "إجمالي النفقات", value: `${totalExpenses.toLocaleString()} ر.س`, change: "-" },
+        { label: "الربح الصافي", value: `${netProfit.toLocaleString()} ر.س`, change: "-" },
       ],
     },
     {
@@ -37,9 +55,9 @@ export default function Reports() {
       description: "إحصائيات شاملة عن القضايا والنتائج",
       icon: FileText,
       metrics: [
-        { label: "إجمالي القضايا", value: "156", change: "+8" },
-        { label: "القضايا المكسوبة", value: "89", change: "57%" },
-        { label: "القضايا الخاسرة", value: "32", change: "20%" },
+        { label: "إجمالي القضايا", value: String(totalCases), change: "-" },
+        { label: "القضايا المكسوبة", value: String(wonCases), change: totalCases > 0 ? `${Math.round((wonCases / totalCases) * 100)}%` : "0%" },
+        { label: "القضايا الخاسرة", value: String(lostCases), change: totalCases > 0 ? `${Math.round((lostCases / totalCases) * 100)}%` : "0%" },
       ],
     },
     {
@@ -48,9 +66,9 @@ export default function Reports() {
       description: "تقييم أداء الفريق والمحامين",
       icon: TrendingUp,
       metrics: [
-        { label: "متوسط الإنتاجية", value: "92%", change: "+5%" },
-        { label: "رضا العملاء", value: "4.8/5", change: "+0.3" },
-        { label: "معدل الاحتفاظ", value: "94%", change: "+2%" },
+        { label: "متوسط الإنتاجية", value: "-", change: "-" },
+        { label: "رضا العملاء", value: "-", change: "-" },
+        { label: "معدل الاحتفاظ", value: "-", change: "-" },
       ],
     },
     {
@@ -59,9 +77,9 @@ export default function Reports() {
       description: "تحليل قاعدة العملاء والعلاقات",
       icon: Users,
       metrics: [
-        { label: "إجمالي العملاء", value: "234", change: "+18" },
-        { label: "عملاء جدد", value: "42", change: "+25%" },
-        { label: "معدل التحويل", value: "28%", change: "+3%" },
+        { label: "إجمالي العملاء", value: String(totalClients), change: "-" },
+        { label: "عملاء جدد", value: String(newClients), change: "-" },
+        { label: "معدل التحويل", value: "-", change: "-" },
       ],
     },
   ];

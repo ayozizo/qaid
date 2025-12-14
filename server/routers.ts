@@ -95,6 +95,20 @@ export const appRouter = router({
     }),
   }),
 
+  reports: router({
+    stats: protectedProcedure
+      .input(
+        z
+          .object({
+            range: z.enum(["week", "month", "quarter", "year"]).optional(),
+          })
+          .optional()
+      )
+      .query(async ({ input }) => {
+        return db.getReportsStats(input?.range);
+      }),
+  }),
+
   // ==================== CLIENTS ====================
   clients: router({
     list: protectedProcedure
