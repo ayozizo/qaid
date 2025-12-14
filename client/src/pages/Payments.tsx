@@ -17,6 +17,24 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 
+const invoiceStatusLabel: Record<string, string> = {
+  draft: "مسودة",
+  sent: "مرسلة",
+  paid: "مدفوعة",
+  partial: "مدفوعة جزئياً",
+  overdue: "متأخرة",
+  cancelled: "ملغاة",
+};
+
+const invoiceStatusClass: Record<string, string> = {
+  draft: "bg-gray-500/20 text-gray-400 border-gray-500/30",
+  sent: "bg-blue-500/20 text-blue-400 border-blue-500/30",
+  paid: "bg-green-500/20 text-green-400 border-green-500/30",
+  partial: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
+  overdue: "bg-red-500/20 text-red-400 border-red-500/30",
+  cancelled: "bg-gray-500/20 text-gray-400 border-gray-500/30",
+};
+
 const subscriptionPlans = [
   {
     id: "individual" as const,
@@ -63,6 +81,9 @@ export default function Payments() {
   const [paymentAmount, setPaymentAmount] = useState("");
   const [selectedPlan, setSelectedPlan] = useState<SubscriptionPlanId | null>(null);
 
+  const { data: invoices } = trpc.invoices.list.useQuery();
+  const { data: invoiceStats } = trpc.invoices.stats.useQuery();
+
   const activateSubscription = trpc.subscriptions.activate.useMutation({
     onSuccess: () => {
       toast.success(
@@ -103,40 +124,14 @@ export default function Payments() {
     },
   ];
 
-  const recentTransactions = [
-    {
-      id: 1,
-      invoice: "INV-2024-001",
-      amount: 5000,
-      method: "Stripe",
-      date: "2024-12-10",
-      status: "completed",
-    },
-    {
-      id: 2,
-      invoice: "INV-2024-002",
-      amount: 3500,
-      method: "STC Pay",
-      date: "2024-12-09",
-      status: "completed",
-    },
-    {
-      id: 3,
-      invoice: "INV-2024-003",
-      amount: 7200,
-      method: "Stripe",
-      date: "2024-12-08",
-      status: "completed",
-    },
-    {
-      id: 4,
-      invoice: "INV-2024-004",
-      amount: 2800,
-      method: "STC Pay",
-      date: "2024-12-07",
-      status: "pending",
-    },
-  ];
+  const recentInvoices = (invoices ?? []).slice(0, 10);
+
+  const paidAmount = invoiceStats?.paidAmount ?? 0;
+  const totalAmount = invoiceStats?.totalAmount ?? 0;
+  const pendingAmount = Math.max(0, totalAmount - paidAmount);
+  const successRate = invoiceStats?.total
+    ? ((invoiceStats.paid / invoiceStats.total) * 100).toFixed(1)
+    : "0.0";
 
   const handlePayment = () => {
     if (!selectedGateway || !paymentAmount) {
@@ -344,74 +339,68 @@ export default function Payments() {
           <h2 className="text-xl font-bold text-foreground mb-4">المعاملات الأخيرة</h2>
           <Card className="card-gold">
             <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-border/50">
-                      <th className="px-6 py-4 text-right text-sm font-semibold text-muted-foreground">
-                        رقم الفاتورة
-                      </th>
-                      <th className="px-6 py-4 text-right text-sm font-semibold text-muted-foreground">
-                        المبلغ
-                      </th>
-                      <th className="px-6 py-4 text-right text-sm font-semibold text-muted-foreground">
-                        طريقة الدفع
-                      </th>
-                      <th className="px-6 py-4 text-right text-sm font-semibold text-muted-foreground">
-                        التاريخ
-                      </th>
-                      <th className="px-6 py-4 text-right text-sm font-semibold text-muted-foreground">
-                        الحالة
-                      </th>
-                      <th className="px-6 py-4 text-right text-sm font-semibold text-muted-foreground">
-                        الإجراء
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {recentTransactions.map((transaction) => (
-                      <tr
-                        key={transaction.id}
-                        className="border-b border-border/50 hover:bg-secondary/30 transition-colors"
-                      >
-                        <td className="px-6 py-4 text-sm text-foreground font-medium">
-                          {transaction.invoice}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-foreground">
-                          {transaction.amount.toLocaleString()} ر.س
-                        </td>
-                        <td className="px-6 py-4 text-sm text-muted-foreground">
-                          {transaction.method}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-muted-foreground">
-                          {new Date(transaction.date).toLocaleDateString("ar-SA")}
-                        </td>
-                        <td className="px-6 py-4 text-sm">
-                          <Badge
-                            variant="outline"
-                            className={
-                              transaction.status === "completed"
-                                ? "bg-green-500/20 text-green-400 border-green-500/30"
-                                : "bg-yellow-500/20 text-yellow-400 border-yellow-500/30"
-                            }
-                          >
-                            {transaction.status === "completed" ? "مكتملة" : "قيد الانتظار"}
-                          </Badge>
-                        </td>
-                        <td className="px-6 py-4 text-sm">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => toast.info("تحميل الإيصال قيد التطوير")}
-                          >
-                            <Download className="h-4 w-4" />
-                          </Button>
-                        </td>
+              {recentInvoices.length === 0 ? (
+                <div className="p-6 text-sm text-muted-foreground">لا توجد معاملات</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-border/50">
+                        <th className="px-6 py-4 text-right text-sm font-semibold text-muted-foreground">
+                          رقم الفاتورة
+                        </th>
+                        <th className="px-6 py-4 text-right text-sm font-semibold text-muted-foreground">
+                          المبلغ
+                        </th>
+                        <th className="px-6 py-4 text-right text-sm font-semibold text-muted-foreground">
+                          التاريخ
+                        </th>
+                        <th className="px-6 py-4 text-right text-sm font-semibold text-muted-foreground">
+                          الحالة
+                        </th>
+                        <th className="px-6 py-4 text-right text-sm font-semibold text-muted-foreground">
+                          الإجراء
+                        </th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {recentInvoices.map((inv) => (
+                        <tr
+                          key={inv.id}
+                          className="border-b border-border/50 hover:bg-secondary/30 transition-colors"
+                        >
+                          <td className="px-6 py-4 text-sm text-foreground font-medium">
+                            {inv.invoiceNumber}
+                          </td>
+                          <td className="px-6 py-4 text-sm text-foreground">
+                            {((inv.totalAmount ?? 0) / 100).toLocaleString("ar-SA")} ر.س
+                          </td>
+                          <td className="px-6 py-4 text-sm text-muted-foreground">
+                            {new Date(inv.createdAt as any).toLocaleDateString("ar-SA")}
+                          </td>
+                          <td className="px-6 py-4 text-sm">
+                            <Badge
+                              variant="outline"
+                              className={invoiceStatusClass[String(inv.status)] ?? invoiceStatusClass.draft}
+                            >
+                              {invoiceStatusLabel[String(inv.status)] ?? String(inv.status)}
+                            </Badge>
+                          </td>
+                          <td className="px-6 py-4 text-sm">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => toast.info("تحميل الإيصال قيد التطوير")}
+                            >
+                              <Download className="h-4 w-4" />
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -421,24 +410,28 @@ export default function Payments() {
           <Card className="card-gold">
             <CardContent className="p-6">
               <p className="text-sm text-muted-foreground mb-2">إجمالي المدفوعات</p>
-              <p className="text-3xl font-bold text-gold">18,500 ر.س</p>
-              <p className="text-xs text-muted-foreground mt-2">هذا الشهر</p>
+              <p className="text-3xl font-bold text-gold">
+                {(paidAmount / 100).toLocaleString("ar-SA")} ر.س
+              </p>
+              <p className="text-xs text-muted-foreground mt-2">-</p>
             </CardContent>
           </Card>
 
           <Card className="card-gold">
             <CardContent className="p-6">
               <p className="text-sm text-muted-foreground mb-2">المدفوعات المعلقة</p>
-              <p className="text-3xl font-bold text-yellow-400">2,800 ر.س</p>
-              <p className="text-xs text-muted-foreground mt-2">1 معاملة</p>
+              <p className="text-3xl font-bold text-yellow-400">
+                {(pendingAmount / 100).toLocaleString("ar-SA")} ر.س
+              </p>
+              <p className="text-xs text-muted-foreground mt-2">-</p>
             </CardContent>
           </Card>
 
           <Card className="card-gold">
             <CardContent className="p-6">
               <p className="text-sm text-muted-foreground mb-2">معدل النجاح</p>
-              <p className="text-3xl font-bold text-green-400">98.5%</p>
-              <p className="text-xs text-muted-foreground mt-2">آخر 30 يوم</p>
+              <p className="text-3xl font-bold text-green-400">{successRate}%</p>
+              <p className="text-xs text-muted-foreground mt-2">-</p>
             </CardContent>
           </Card>
         </div>

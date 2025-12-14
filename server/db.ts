@@ -742,13 +742,13 @@ export async function getNotificationsByUserId(userId: number, unreadOnly: boole
 
 export async function markNotificationAsRead(id: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) return;
   await db.update(notifications).set({ isRead: true }).where(eq(notifications.id, id));
 }
 
 export async function markAllNotificationsAsRead(userId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) return;
   await db.update(notifications).set({ isRead: true }).where(eq(notifications.userId, userId));
 }
 

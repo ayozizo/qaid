@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useState } from "react";
+import { trpc } from "@/lib/trpc";
 
 export default function Notifications() {
   const [notificationSettings, setNotificationSettings] = useState({
@@ -35,8 +36,21 @@ export default function Notifications() {
   });
 
   const [contactInfo, setContactInfo] = useState({
-    email: "lawyer@example.com",
-    phone: "+966501234567",
+    email: "",
+    phone: "",
+  });
+
+  const { data: notifications, refetch } = trpc.notifications.list.useQuery();
+  const markAsRead = trpc.notifications.markAsRead.useMutation({
+    onSuccess: () => {
+      refetch();
+    },
+  });
+  const markAllAsRead = trpc.notifications.markAllAsRead.useMutation({
+    onSuccess: () => {
+      refetch();
+      toast.success("تم تحديث الإشعارات");
+    },
   });
 
   const handleSettingChange = (key: keyof typeof notificationSettings) => {
@@ -55,40 +69,17 @@ export default function Notifications() {
     toast.success("تم تحديث قنوات الإشعارات");
   };
 
-  const recentNotifications = [
-    {
-      id: 1,
-      title: "تذكير بجلسة قادمة",
-      message: "جلسة قضية رقم 2024/001 غداً الساعة 10:00 صباحاً",
-      type: "hearing",
-      time: "منذ ساعة",
-      read: false,
-    },
-    {
-      id: 2,
-      title: "موعد نهائي قريب",
-      message: "آخر موعد لتقديم الرد على الدعوى: 2024-12-20",
-      type: "deadline",
-      time: "منذ 3 ساعات",
-      read: false,
-    },
-    {
-      id: 3,
-      title: "فاتورة جديدة",
-      message: "تم إنشاء فاتورة جديدة برقم #INV-2024-001",
-      type: "payment",
-      time: "منذ يوم",
-      read: true,
-    },
-    {
-      id: 4,
-      title: "تحديث القضية",
-      message: "تم تحديث حالة قضية رقم 2024/002 إلى 'قيد الاستئناف'",
-      type: "case",
-      time: "منذ يومين",
-      read: true,
-    },
-  ];
+  const recentNotifications = notifications ?? [];
+
+  const formatTime = (value: unknown) => {
+    try {
+      const d = value instanceof Date ? value : new Date(value as any);
+      if (Number.isNaN(d.getTime())) return "";
+      return d.toLocaleString("ar-SA");
+    } catch {
+      return "";
+    }
+  };
 
   const getNotificationIcon = (type: string) => {
     switch (type) {
@@ -358,40 +349,52 @@ export default function Notifications() {
                 <CardTitle className="text-lg">الإشعارات الأخيرة</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                {recentNotifications.map((notification) => (
-                  <div
-                    key={notification.id}
-                    className={`p-3 rounded-lg border transition-all ${
-                      notification.read
-                        ? "bg-secondary/30 border-border/30"
-                        : "bg-secondary/50 border-gold/20"
-                    }`}
-                  >
-                    <div className="flex items-start gap-3">
-                      {getNotificationIcon(notification.type)}
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-foreground text-sm">
-                          {notification.title}
-                        </p>
-                        <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
-                          {notification.message}
-                        </p>
-                        <p className="text-xs text-muted-foreground mt-2">
-                          {notification.time}
-                        </p>
-                      </div>
-                      {!notification.read && (
-                        <div className="w-2 h-2 bg-gold rounded-full flex-shrink-0 mt-1" />
-                      )}
-                    </div>
+                {recentNotifications.length === 0 ? (
+                  <div className="p-4 bg-secondary/30 rounded-lg text-sm text-muted-foreground">
+                    لا توجد إشعارات
                   </div>
-                ))}
+                ) : (
+                  recentNotifications.map((notification) => (
+                    <div
+                      key={notification.id}
+                      className={`p-3 rounded-lg border transition-all ${
+                        notification.isRead
+                          ? "bg-secondary/30 border-border/30"
+                          : "bg-secondary/50 border-gold/20"
+                      }`}
+                      onClick={() => {
+                        if (!notification.isRead) {
+                          markAsRead.mutate({ id: notification.id });
+                        }
+                      }}
+                    >
+                      <div className="flex items-start gap-3">
+                        {getNotificationIcon(notification.type)}
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-foreground text-sm">
+                            {notification.title}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
+                            {notification.message}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-2">
+                            {formatTime(notification.createdAt)}
+                          </p>
+                        </div>
+                        {!notification.isRead && (
+                          <div className="w-2 h-2 bg-gold rounded-full flex-shrink-0 mt-1" />
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
 
                 <Button
                   variant="outline"
                   className="w-full border-gold/30 hover:border-gold/50 mt-4"
+                  onClick={() => markAllAsRead.mutate()}
                 >
-                  عرض جميع الإشعارات
+                  تحديد الكل كمقروء
                 </Button>
               </CardContent>
             </Card>

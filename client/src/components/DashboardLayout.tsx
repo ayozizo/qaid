@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/sidebar";
 import { getLoginUrl } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
+import { trpc } from "@/lib/trpc";
 import {
   LayoutDashboard,
   LogOut,
@@ -72,6 +73,11 @@ export default function DashboardLayout({
     return saved ? parseInt(saved, 10) : DEFAULT_WIDTH;
   });
   const { loading, user } = useAuth();
+  const { data: unreadNotifications } = trpc.notifications.list.useQuery(
+    { unreadOnly: true },
+    { enabled: !loading && Boolean(user) }
+  );
+  const unreadCount = unreadNotifications?.length ?? 0;
 
   useEffect(() => {
     localStorage.setItem(SIDEBAR_WIDTH_KEY, sidebarWidth.toString());
@@ -329,9 +335,12 @@ function DashboardLayoutContent({
               variant="ghost"
               size="icon"
               className="relative rounded-xl hover:bg-gold/10"
+              onClick={() => setLocation("/notifications")}
             >
               <Bell className="h-5 w-5 text-muted-foreground" />
-              <span className="absolute top-1 right-1 w-2 h-2 bg-gold rounded-full" />
+              {unreadCount > 0 && (
+                <span className="absolute top-1 right-1 w-2 h-2 bg-gold rounded-full" />
+              )}
             </Button>
           </div>
         </div>
