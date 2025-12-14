@@ -20,10 +20,9 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
-import { useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   FileText,
-  Plus,
   Search,
   MoreVertical,
   Eye,
@@ -85,9 +84,29 @@ const formatFileSize = (bytes: number | null) => {
 export default function Documents() {
   const [search, setSearch] = useState("");
   const [isUploadOpen, setIsUploadOpen] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedType, setSelectedType] = useState<keyof typeof documentTypeLabels>("other");
+  const [description, setDescription] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const apiBaseUrl = useMemo(() => import.meta.env.VITE_API_BASE_URL ?? "", []);
 
   const { data: documents, isLoading, refetch } = trpc.documents.list.useQuery({
     search: search || undefined,
+  });
+
+  const createDocument = trpc.documents.create.useMutation({
+    onSuccess: () => {
+      toast.success("تم رفع المستند بنجاح");
+      refetch();
+      setIsUploadOpen(false);
+      setSelectedFile(null);
+      setSelectedType("other");
+      setDescription("");
+    },
+    onError: () => {
+      toast.error("حدث خطأ أثناء حفظ بيانات المستند");
+    },
   });
 
   const deleteDocument = trpc.documents.delete.useMutation({
@@ -109,6 +128,47 @@ export default function Documents() {
     },
     {} as Record<string, typeof documents>
   );
+
+  const uploadFile = async (file: File) => {
+    const dataBase64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = String(reader.result ?? "");
+        const base64 = result.includes(",") ? result.split(",")[1] : result;
+        resolve(base64);
+      };
+      reader.onerror = () => reject(new Error("Failed to read file"));
+      reader.readAsDataURL(file);
+    });
+
+    const token = localStorage.getItem("auth_token");
+    const url = apiBaseUrl ? `${apiBaseUrl}/api/documents/upload` : "/api/documents/upload";
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        filename: file.name,
+        mimeType: file.type,
+        dataBase64,
+      }),
+    });
+
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      throw new Error(detail || "Upload failed");
+    }
+
+    return (await response.json()) as {
+      fileUrl: string;
+      fileKey: string;
+      mimeType: string | null;
+      fileSize: number;
+    };
+  };
 
   return (
     <DashboardLayout>
@@ -137,7 +197,28 @@ export default function Documents() {
                 <DialogTitle>رفع مستند جديد</DialogTitle>
               </DialogHeader>
               <div className="space-y-4 mt-4">
-                <div className="border-2 border-dashed border-border/50 rounded-xl p-8 text-center hover:border-gold/50 transition-colors cursor-pointer">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="hidden"
+                  accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] ?? null;
+                    setSelectedFile(file);
+                  }}
+                />
+                <div
+                  className="border-2 border-dashed border-border/50 rounded-xl p-8 text-center hover:border-gold/50 transition-colors cursor-pointer"
+                  onClick={() => fileInputRef.current?.click()}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const file = e.dataTransfer.files?.[0] ?? null;
+                    setSelectedFile(file);
+                  }}
+                >
                   <Upload className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                   <p className="text-foreground font-medium mb-1">
                     اسحب الملفات هنا أو انقر للاختيار
@@ -145,11 +226,19 @@ export default function Documents() {
                   <p className="text-xs text-muted-foreground">
                     PDF, DOC, DOCX, JPG, PNG حتى 10MB
                   </p>
+                  {selectedFile && (
+                    <p className="text-xs text-muted-foreground mt-3">
+                      {selectedFile.name}
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
                   <Label>نوع المستند</Label>
-                  <Select defaultValue="other">
+                  <Select
+                    value={selectedType}
+                    onValueChange={(value) => setSelectedType(value as keyof typeof documentTypeLabels)}
+                  >
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
@@ -165,7 +254,12 @@ export default function Documents() {
 
                 <div className="space-y-2">
                   <Label>الوصف</Label>
-                  <Textarea placeholder="وصف المستند..." rows={2} />
+                  <Textarea
+                    placeholder="وصف المستند..."
+                    rows={2}
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                  />
                 </div>
               </div>
               <div className="flex justify-end gap-2 mt-6">
@@ -174,9 +268,31 @@ export default function Documents() {
                 </Button>
                 <Button
                   className="btn-gold"
-                  onClick={() => {
-                    toast.info("ميزة رفع الملفات قيد التطوير");
-                    setIsUploadOpen(false);
+                  disabled={!selectedFile || createDocument.isPending}
+                  onClick={async () => {
+                    if (!selectedFile) {
+                      toast.error("يرجى اختيار ملف أولاً");
+                      return;
+                    }
+
+                    try {
+                      const uploaded = await uploadFile(selectedFile);
+                      await createDocument.mutateAsync({
+                        name: selectedFile.name,
+                        description: description ? description : null,
+                        type: selectedType,
+                        fileUrl: uploaded.fileUrl,
+                        fileKey: uploaded.fileKey,
+                        mimeType: uploaded.mimeType ?? selectedFile.type,
+                        fileSize: uploaded.fileSize,
+                        caseId: null,
+                        clientId: null,
+                        isTemplate: false,
+                      });
+                    } catch (error) {
+                      console.error(error);
+                      toast.error("فشل رفع الملف. تأكد من تسجيل الدخول وحجم الملف");
+                    }
                   }}
                 >
                   رفع المستند

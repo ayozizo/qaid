@@ -1,11 +1,14 @@
 import "dotenv/config";
 import express from "express";
+import fs from "fs/promises";
 import { createServer } from "http";
 import net from "net";
+import path from "path";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
+import { sdk } from "./sdk";
 import { serveStatic, setupVite } from "./vite";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -34,6 +37,10 @@ async function startServer() {
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
+  const uploadsDir = path.join(process.cwd(), "uploads");
+  await fs.mkdir(uploadsDir, { recursive: true });
+  app.use("/uploads", express.static(uploadsDir));
+
   // Basic CORS support for separate frontend origin (e.g. Netlify)
   const allowedOrigins = process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(",") : [];
   app.use((req, res, next) => {
@@ -55,6 +62,41 @@ async function startServer() {
     }
 
     next();
+  });
+
+  app.post("/api/documents/upload", async (req, res) => {
+    try {
+      await sdk.authenticateRequest(req);
+
+      const filename = typeof req.body?.filename === "string" ? req.body.filename : "file";
+      const mimeType = typeof req.body?.mimeType === "string" ? req.body.mimeType : null;
+      const dataBase64 = typeof req.body?.dataBase64 === "string" ? req.body.dataBase64 : "";
+
+      if (!dataBase64) {
+        return res.status(400).json({ error: "Missing file data" });
+      }
+
+      const buffer = Buffer.from(dataBase64, "base64");
+      const maxSize = 10 * 1024 * 1024;
+      if (buffer.length > maxSize) {
+        return res.status(400).json({ error: "File too large" });
+      }
+
+      const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const storedName = `${Date.now()}-${Math.random().toString(16).slice(2)}-${safeName}`;
+      const filePath = path.join(uploadsDir, storedName);
+      await fs.writeFile(filePath, buffer);
+
+      const baseUrl = `${req.protocol}://${req.get("host")}`;
+      return res.json({
+        fileUrl: `${baseUrl}/uploads/${storedName}`,
+        fileKey: storedName,
+        mimeType,
+        fileSize: buffer.length,
+      });
+    } catch (error) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
   });
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);

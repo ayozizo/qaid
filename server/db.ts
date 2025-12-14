@@ -34,6 +34,7 @@ let _db: ReturnType<typeof drizzle> | null = null;
 
 // In-memory user storage for local development
 const inMemoryUsers = new Map<string, any>();
+const inMemoryDocuments = new Map<number, any>();
 
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
@@ -363,58 +364,124 @@ export async function getHearingsByDateRange(startDate?: Date, endDate?: Date) {
 // ==================== DOCUMENT FUNCTIONS ====================
 export async function createDocument(doc: InsertDocument) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) {
+    const id = Date.now();
+    const now = new Date();
+    inMemoryDocuments.set(id, {
+      id,
+      ...doc,
+      createdAt: doc.createdAt ?? now,
+      updatedAt: doc.updatedAt ?? now,
+    });
+    return id;
+  }
+
   const result = await db.insert(documents).values(doc);
   return result[0].insertId;
 }
 
 export async function updateDocument(id: number, doc: Partial<InsertDocument>) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) {
+    const existing = inMemoryDocuments.get(id);
+    if (!existing) throw new Error("Document not found");
+    inMemoryDocuments.set(id, {
+      ...existing,
+      ...doc,
+      updatedAt: new Date(),
+    });
+    return;
+  }
+
   await db.update(documents).set(doc).where(eq(documents.id, id));
 }
 
 export async function deleteDocument(id: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) {
+    inMemoryDocuments.delete(id);
+    return;
+  }
+
   await db.delete(documents).where(eq(documents.id, id));
 }
 
 export async function getDocumentById(id: number) {
   const db = await getDb();
-  if (!db) return undefined;
+  if (!db) return inMemoryDocuments.get(id);
+
   const result = await db.select().from(documents).where(eq(documents.id, id)).limit(1);
   return result[0];
 }
 
 export async function getDocumentsByCaseId(caseId: number) {
   const db = await getDb();
-  if (!db) return [];
-  return db.select().from(documents).where(eq(documents.caseId, caseId)).orderBy(desc(documents.createdAt));
+  if (!db) {
+    return Array.from(inMemoryDocuments.values())
+      .filter((doc) => doc.caseId === caseId)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  return db
+    .select()
+    .from(documents)
+    .where(eq(documents.caseId, caseId))
+    .orderBy(desc(documents.createdAt));
 }
 
 export async function getDocumentsByClientId(clientId: number) {
   const db = await getDb();
-  if (!db) return [];
-  return db.select().from(documents).where(eq(documents.clientId, clientId)).orderBy(desc(documents.createdAt));
+  if (!db) {
+    return Array.from(inMemoryDocuments.values())
+      .filter((doc) => doc.clientId === clientId)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  return db
+    .select()
+    .from(documents)
+    .where(eq(documents.clientId, clientId))
+    .orderBy(desc(documents.createdAt));
 }
 
 export async function getDocumentTemplates() {
   const db = await getDb();
-  if (!db) return [];
-  return db.select().from(documents).where(eq(documents.isTemplate, true)).orderBy(desc(documents.createdAt));
+  if (!db) {
+    return Array.from(inMemoryDocuments.values())
+      .filter((doc) => Boolean(doc.isTemplate) === true)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  return db
+    .select()
+    .from(documents)
+    .where(eq(documents.isTemplate, true))
+    .orderBy(desc(documents.createdAt));
 }
 
 export async function getAllDocuments(search?: string) {
   const db = await getDb();
-  if (!db) return [];
-  
+  if (!db) {
+    const all = Array.from(inMemoryDocuments.values()).sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+
+    if (search) {
+      const q = search.toLowerCase();
+      return all.filter((doc) => String(doc.name ?? "").toLowerCase().includes(q));
+    }
+
+    return all;
+  }
+
   if (search) {
-    return db.select().from(documents)
+    return db
+      .select()
+      .from(documents)
       .where(like(documents.name, `%${search}%`))
       .orderBy(desc(documents.createdAt));
   }
-  
+
   return db.select().from(documents).orderBy(desc(documents.createdAt));
 }
 
