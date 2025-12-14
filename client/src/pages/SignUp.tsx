@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { Scale, Sparkles, Eye, EyeOff, Mail, User, Shield, Phone, Building } from "lucide-react";
 
@@ -6,6 +6,8 @@ export default function SignUp() {
   const [, setLocation] = useLocation();
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [signupMode, setSignupMode] = useState<"trial" | "pay">("trial");
+  const backendOrigin = import.meta.env.VITE_BACKEND_ORIGIN ?? "";
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -13,6 +15,14 @@ export default function SignUp() {
     phone: "",
     lawFirm: ""
   });
+
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const mode = urlParams.get("mode");
+    if (mode === "trial" || mode === "pay") {
+      setSignupMode(mode);
+    }
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -25,11 +35,31 @@ export default function SignUp() {
     });
 
     try {
-      // For now, redirect to login with a success message
-      // In the future, this would create a new user account
-      setTimeout(() => {
-        setLocation('/login?message=account_created');
-      }, 1500);
+      const form = document.createElement('form');
+      form.method = 'POST';
+      form.action = `${backendOrigin}/api/local-signup`;
+
+      const addHiddenField = (name: string, value: string) => {
+        const field = document.createElement('input');
+        field.type = 'hidden';
+        field.name = name;
+        field.value = value;
+        form.appendChild(field);
+      };
+
+      addHiddenField('name', formData.name);
+      addHiddenField('email', formData.email);
+      addHiddenField('password', formData.password);
+      addHiddenField('phone', formData.phone);
+      addHiddenField('lawFirm', formData.lawFirm);
+      addHiddenField('mode', signupMode);
+      addHiddenField('redirect', signupMode === 'pay' ? '/payments' : '/dashboard');
+
+      console.log('[SignUp] Submitting form to:', form.action);
+
+      document.body.appendChild(form);
+      form.submit();
+      document.body.removeChild(form);
       
     } catch (error) {
       console.error("Sign up error:", error);
@@ -70,6 +100,33 @@ export default function SignUp() {
             <p className="text-muted-foreground text-sm mt-2">
               ابدأ رحلتك مع نظام قيد لإدارة القضايا
             </p>
+          </div>
+
+          <div className="mb-4">
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setSignupMode('trial')}
+                className={`flex-1 py-2 rounded-lg border text-sm font-medium transition-colors ${
+                  signupMode === 'trial'
+                    ? 'bg-gold text-black border-gold'
+                    : 'bg-transparent text-foreground border-border/60 hover:border-gold/50'
+                }`}
+              >
+                فترة تجريبية مجانية
+              </button>
+              <button
+                type="button"
+                onClick={() => setSignupMode('pay')}
+                className={`flex-1 py-2 rounded-lg border text-sm font-medium transition-colors ${
+                  signupMode === 'pay'
+                    ? 'bg-gold text-black border-gold'
+                    : 'bg-transparent text-foreground border-border/60 hover:border-gold/50'
+                }`}
+              >
+                الدفع الآن
+              </button>
+            </div>
           </div>
           
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -188,12 +245,12 @@ export default function SignUp() {
               {isLoading ? (
                 <div className="flex items-center gap-2">
                   <div className="animate-spin w-4 h-4 border-2 border-black border-t-transparent rounded-full" />
-                  جاري إنشاء الحساب...
+                  {signupMode === 'pay' ? 'جاري إنشاء الحساب والانتقال للدفع...' : 'جاري إنشاء الحساب...'}
                 </div>
               ) : (
                 <div className="flex items-center gap-2">
                   <Sparkles className="h-4 w-4" />
-                  إنشاء حساب جديد
+                  {signupMode === 'pay' ? 'إنشاء حساب والدفع الآن' : 'إنشاء حساب (تجربة مجانية)'}
                 </div>
               )}
             </button>

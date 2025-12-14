@@ -6,6 +6,7 @@ export default function Login() {
   const [, setLocation] = useLocation();
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const backendOrigin = import.meta.env.VITE_BACKEND_ORIGIN ?? "";
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -21,7 +22,7 @@ export default function Login() {
       // Create a form element and submit it to handle the redirect properly
       const form = document.createElement('form');
       form.method = 'POST';
-      form.action = `${import.meta.env.VITE_BACKEND_ORIGIN}/api/local-login`;
+      form.action = `${backendOrigin}/api/local-login`;
       
       // Add form data
       const nameField = document.createElement('input');

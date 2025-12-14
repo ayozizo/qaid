@@ -146,7 +146,20 @@ export async function getAllUsers() {
 
 export async function setUserActive(userId: number, isActive: boolean) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) {
+    for (const [openId, user] of inMemoryUsers.entries()) {
+      if (user?.id === userId) {
+        inMemoryUsers.set(openId, {
+          ...user,
+          isActive,
+          updatedAt: new Date(),
+        });
+        return;
+      }
+    }
+    throw new Error("User not found");
+  }
+
   await db.update(users).set({ isActive }).where(eq(users.id, userId));
 }
 

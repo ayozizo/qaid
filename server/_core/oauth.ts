@@ -1,9 +1,7 @@
-import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
+import { ONE_YEAR_MS } from "@shared/const";
 import type { Express, Request, Response } from "express";
 import * as db from "../db";
-import { getSessionCookieOptions } from "./cookies";
 import { sdk } from "./sdk";
-
 
 export function registerOAuthRoutes(app: Express) {
   // Simple login form for all environments
@@ -137,13 +135,54 @@ export function registerOAuthRoutes(app: Express) {
       // Instead of setting a cookie, return the token in the response
       // and redirect with the token as a query parameter
       const frontendOrigin = process.env.FRONTEND_URL || "https://qaid.netlify.app";
-      const redirectUrl = `${frontendOrigin}?token=${sessionToken}`;
+      const redirect = typeof req.body.redirect === "string" ? req.body.redirect : "";
+      const redirectQuery = redirect ? `&redirect=${encodeURIComponent(redirect)}` : "";
+      const redirectUrl = `${frontendOrigin}?token=${sessionToken}${redirectQuery}`;
       
       console.log("[Local Login] Redirecting to frontend with token");
       res.redirect(302, redirectUrl);
     } catch (error) {
       console.error("[Local Login] Login failed", error);
       res.status(500).json({ error: "Login failed" });
+    }
+  });
+
+  app.post("/api/local-signup", async (req: Request, res: Response) => {
+    console.log("[Local Signup] Processing local signup");
+
+    try {
+      const name = req.body.name || "مستخدم تجريبي";
+      const email = req.body.email || "test@example.com";
+      const phone = typeof req.body.phone === "string" ? req.body.phone : undefined;
+      const mode = req.body.mode === "pay" ? "pay" : "trial";
+      const isActive = mode === "trial";
+      const openId = `local-${email.replace(/[^a-zA-Z0-9]/g, '')}`;
+
+      await db.upsertUser({
+        openId,
+        name,
+        email,
+        phone,
+        loginMethod: "local",
+        isActive,
+        lastSignedIn: new Date(),
+      });
+
+      const sessionToken = await sdk.createSessionToken(openId, {
+        name,
+        expiresInMs: ONE_YEAR_MS,
+      });
+
+      const frontendOrigin = process.env.FRONTEND_URL || "https://qaid.netlify.app";
+      const redirect = typeof req.body.redirect === "string" ? req.body.redirect : "";
+      const redirectQuery = redirect ? `&redirect=${encodeURIComponent(redirect)}` : "";
+      const redirectUrl = `${frontendOrigin}?token=${sessionToken}${redirectQuery}`;
+
+      console.log("[Local Signup] Redirecting to frontend with token");
+      res.redirect(302, redirectUrl);
+    } catch (error) {
+      console.error("[Local Signup] Signup failed", error);
+      res.status(500).json({ error: "Signup failed" });
     }
   });
 }

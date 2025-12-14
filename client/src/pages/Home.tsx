@@ -1,6 +1,5 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
-import { getLoginUrl } from "@/const";
 import { useLocation } from "wouter";
 import {
   Scale,
@@ -109,7 +108,7 @@ export default function Home() {
               <div className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start">
                 <Button
                   className="btn-gold text-lg px-8 py-6"
-                  onClick={() => window.location.href = getLoginUrl()}
+                  onClick={() => setLocation("/signup?mode=trial")}
                 >
                   ابدأ الآن مجاناً
                   <ArrowLeft className="h-5 w-5 mr-2" />
@@ -282,7 +281,7 @@ export default function Home() {
             </p>
             <Button
               className="btn-gold text-lg px-10 py-6"
-              onClick={() => window.location.href = getLoginUrl()}
+              onClick={() => setLocation("/signup?mode=trial")}
             >
               ابدأ الآن مجاناً
               <ArrowLeft className="h-5 w-5 mr-2" />
