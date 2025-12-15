@@ -44,7 +44,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 
-const documentTypeLabels: Record<string, string> = {
+const documentTypeLabels = {
   contract: "عقد",
   memo: "مذكرة",
   pleading: "لائحة",
@@ -53,9 +53,15 @@ const documentTypeLabels: Record<string, string> = {
   court_order: "حكم قضائي",
   power_of_attorney: "وكالة",
   other: "أخرى",
+} as const;
+
+type DocumentType = keyof typeof documentTypeLabels;
+
+const isDocumentType = (value: unknown): value is DocumentType => {
+  return typeof value === "string" && value in documentTypeLabels;
 };
 
-const documentTypeColors: Record<string, string> = {
+const documentTypeColors: Record<DocumentType, string> = {
   contract: "bg-blue-500/20 text-blue-400 border-blue-500/30",
   memo: "bg-purple-500/20 text-purple-400 border-purple-500/30",
   pleading: "bg-green-500/20 text-green-400 border-green-500/30",
@@ -85,8 +91,9 @@ export default function Documents() {
   const [search, setSearch] = useState("");
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [selectedType, setSelectedType] = useState<keyof typeof documentTypeLabels>("other");
+  const [selectedType, setSelectedType] = useState<DocumentType>("other");
   const [description, setDescription] = useState("");
+  const [selectedClientId, setSelectedClientId] = useState<number>(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const apiBaseUrl = useMemo(() => import.meta.env.VITE_API_BASE_URL ?? "", []);
@@ -94,6 +101,15 @@ export default function Documents() {
   const { data: documents, isLoading, refetch } = trpc.documents.list.useQuery({
     search: search || undefined,
   });
+
+  const { data: clients } = trpc.clients.list.useQuery();
+  const clientsById = useMemo(() => {
+    const map = new Map<number, string>();
+    (clients ?? []).forEach((c) => {
+      map.set(c.id, c.name);
+    });
+    return map;
+  }, [clients]);
 
   const createDocument = trpc.documents.create.useMutation({
     onSuccess: () => {
@@ -103,6 +119,7 @@ export default function Documents() {
       setSelectedFile(null);
       setSelectedType("other");
       setDescription("");
+      setSelectedClientId(0);
     },
     onError: () => {
       toast.error("حدث خطأ أثناء حفظ بيانات المستند");
@@ -253,6 +270,25 @@ export default function Documents() {
                 </div>
 
                 <div className="space-y-2">
+                  <Label>العميل *</Label>
+                  <Select
+                    value={selectedClientId ? String(selectedClientId) : ""}
+                    onValueChange={(value) => setSelectedClientId(parseInt(value))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="اختر العميل" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(clients ?? []).map((client) => (
+                        <SelectItem key={client.id} value={String(client.id)}>
+                          {client.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
                   <Label>الوصف</Label>
                   <Textarea
                     placeholder="وصف المستند..."
@@ -275,6 +311,11 @@ export default function Documents() {
                       return;
                     }
 
+                    if (!selectedClientId) {
+                      toast.error("يرجى اختيار العميل أولاً");
+                      return;
+                    }
+
                     try {
                       const uploaded = await uploadFile(selectedFile);
                       await createDocument.mutateAsync({
@@ -286,7 +327,7 @@ export default function Documents() {
                         mimeType: uploaded.mimeType ?? selectedFile.type,
                         fileSize: uploaded.fileSize,
                         caseId: null,
-                        clientId: null,
+                        clientId: selectedClientId,
                         isTemplate: false,
                       });
                     } catch (error) {
@@ -319,7 +360,8 @@ export default function Documents() {
 
         {/* Document Type Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
-          {Object.entries(documentTypeLabels).map(([type, label]) => {
+          {(Object.entries(documentTypeLabels) as Array<[DocumentType, string]>).map(
+            ([type, label]) => {
             const count = documentsByType?.[type]?.length ?? 0;
             return (
               <Card
@@ -337,7 +379,8 @@ export default function Documents() {
                 </CardContent>
               </Card>
             );
-          })}
+          }
+          )}
         </div>
 
         {/* Documents List */}
@@ -355,6 +398,8 @@ export default function Documents() {
           ) : documents && documents.length > 0 ? (
             documents.map((doc) => {
               const FileIcon = getFileIcon(doc.mimeType);
+              const clientName = doc.clientId ? clientsById.get(doc.clientId) : undefined;
+              const docType: DocumentType = isDocumentType(doc.type) ? doc.type : "other";
               return (
                 <Card
                   key={doc.id}
@@ -373,9 +418,9 @@ export default function Documents() {
                           <div className="flex items-center gap-3 mt-1">
                             <Badge
                               variant="outline"
-                              className={documentTypeColors[doc.type]}
+                              className={documentTypeColors[docType]}
                             >
-                              {documentTypeLabels[doc.type]}
+                              {documentTypeLabels[docType]}
                             </Badge>
                             <span className="text-xs text-muted-foreground">
                               {formatFileSize(doc.fileSize)}
@@ -385,6 +430,9 @@ export default function Documents() {
                               {new Date(doc.createdAt).toLocaleDateString("ar-SA")}
                             </span>
                           </div>
+                          {clientName && (
+                            <p className="text-xs text-muted-foreground mt-1">{clientName}</p>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
