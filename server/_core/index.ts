@@ -9,6 +9,7 @@ import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { sdk } from "./sdk";
+import { storagePut } from "../storage";
 import { serveStatic, setupVite } from "./vite";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -67,7 +68,11 @@ async function startServer() {
   app.post("/api/documents/upload", async (req, res) => {
     try {
       await sdk.authenticateRequest(req);
+    } catch {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
 
+    try {
       const filename = typeof req.body?.filename === "string" ? req.body.filename : "file";
       const mimeType = typeof req.body?.mimeType === "string" ? req.body.mimeType : null;
       const dataBase64 = typeof req.body?.dataBase64 === "string" ? req.body.dataBase64 : "";
@@ -84,18 +89,31 @@ async function startServer() {
 
       const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
       const storedName = `${Date.now()}-${Math.random().toString(16).slice(2)}-${safeName}`;
-      const filePath = path.join(uploadsDir, storedName);
-      await fs.writeFile(filePath, buffer);
 
-      const baseUrl = `${req.protocol}://${req.get("host")}`;
-      return res.json({
-        fileUrl: `${baseUrl}/uploads/${storedName}`,
-        fileKey: storedName,
-        mimeType,
-        fileSize: buffer.length,
-      });
+      try {
+        const contentType = mimeType ?? "application/octet-stream";
+        const { key, url } = await storagePut(`uploads/${storedName}`, buffer, contentType);
+        return res.json({
+          fileUrl: url,
+          fileKey: key,
+          mimeType,
+          fileSize: buffer.length,
+        });
+      } catch {
+        const filePath = path.join(uploadsDir, storedName);
+        await fs.writeFile(filePath, buffer);
+
+        const baseUrl = `${req.protocol}://${req.get("host")}`;
+        return res.json({
+          fileUrl: `${baseUrl}/uploads/${storedName}`,
+          fileKey: storedName,
+          mimeType,
+          fileSize: buffer.length,
+        });
+      }
     } catch (error) {
-      return res.status(401).json({ error: "Unauthorized" });
+      console.error(error);
+      return res.status(500).json({ error: "Upload failed" });
     }
   });
   // OAuth callback under /api/oauth/callback
