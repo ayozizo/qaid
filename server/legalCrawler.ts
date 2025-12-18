@@ -94,6 +94,12 @@ function inferSource(url: string): string {
     const host = new URL(url).hostname.toLowerCase();
     if (host.includes("laws.moj.gov.sa")) return "MOJ_LAWS";
     if (host.includes("boe.gov.sa")) return "BOE";
+    if (host.includes("cma.org.sa")) return "CMA";
+    if (host.includes("cma.gov.sa")) return "CMA";
+    if (host.includes("sama.gov.sa")) return "SAMA";
+    if (host.includes("zatca.gov.sa")) return "ZATCA";
+    if (host.includes("expro.gov.sa")) return "EXPRO";
+    if (host.includes("nazaha.gov.sa")) return "NAZAHA";
     return host;
   } catch {
     return "UNKNOWN";
