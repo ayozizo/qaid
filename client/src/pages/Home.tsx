@@ -96,7 +96,7 @@ export default function Home() {
               </div>
               
               <h1 className="text-4xl lg:text-6xl font-bold text-foreground mb-6 leading-tight">
-                <span className="text-gold">قيد</span>
+                <span className="text-gold">موازين</span>
                 <br />
                 مساعدك القانوني الذكي
               </h1>
@@ -133,7 +133,7 @@ export default function Home() {
                       <Scale className="h-8 w-8 text-gold" />
                     </div>
                     <div>
-                      <h3 className="text-xl font-bold text-foreground">قيد</h3>
+                      <h3 className="text-xl font-bold text-foreground">موازين</h3>
                       <p className="text-sm text-muted-foreground">المساعد القانوني الذكي</p>
                     </div>
                   </div>
@@ -155,7 +155,7 @@ export default function Home() {
                         <span className="text-sm font-medium text-gold">رد المساعد</span>
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        بناءً على نظام المحاكم التجارية، المادة 15، يمكن الطعن في...
+                        سأحتاج بعض التفاصيل (نوع الدعوى، المحكمة/الجهة، التسلسل الزمني) ثم أقدّم لك مسارات نظامية محتملة ومخاطر ومتطلبات.
                       </p>
                     </div>
                   </div>
@@ -247,7 +247,9 @@ export default function Home() {
                       "نظام المرافعات الشرعية",
                       "نظام الإجراءات الجزائية",
                       "نظام المحاكم التجارية",
-                      "نظام العمل والعمال",
+                      "نظام العمل (وزارة الموارد البشرية والتنمية الاجتماعية / مكتب العمل)",
+                      "ديوان المظالم",
+                      "منصة مُعين (إجراءات التقديم والمتطلبات)",
                       "نظام الأحوال الشخصية",
                       "نظام التنفيذ",
                     ].map((system, index) => (
@@ -274,10 +276,10 @@ export default function Home() {
         <div className="container">
           <div className="text-center max-w-3xl mx-auto">
             <h2 className="text-3xl lg:text-4xl font-bold text-foreground mb-6">
-              ابدأ في استخدام قيد اليوم
+              ابدأ في استخدام موازين اليوم
             </h2>
             <p className="text-lg text-muted-foreground mb-8">
-              انضم إلى مئات المحامين الذين يستخدمون قيد لإدارة مكاتبهم بكفاءة أعلى
+              انضم إلى مئات المحامين الذين يستخدمون موازين لإدارة مكاتبهم بكفاءة أعلى
             </p>
             <Button
               className="btn-gold text-lg px-10 py-6"
@@ -296,10 +298,10 @@ export default function Home() {
           <div className="flex flex-col md:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-2">
               <Scale className="h-6 w-6 text-gold" />
-              <span className="font-bold text-foreground">قيد</span>
+              <span className="font-bold text-foreground">موازين</span>
             </div>
             <p className="text-sm text-muted-foreground">
-              © {new Date().getFullYear()} قيد - جميع الحقوق محفوظة
+              © {new Date().getFullYear()} موازين - جميع الحقوق محفوظة
             </p>
           </div>
         </div>

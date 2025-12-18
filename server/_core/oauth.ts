@@ -12,7 +12,7 @@ export function registerOAuthRoutes(app: Express) {
       <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>تسجيل الدخول - قيد</title>
+        <title>تسجيل الدخول - موازين</title>
         <style>
           body { 
             font-family: 'Tajawal', 'Cairo', Arial, sans-serif; 
@@ -83,7 +83,7 @@ export function registerOAuthRoutes(app: Express) {
       </head>
       <body>
         <div class="login-container">
-          <div class="logo">قيد</div>
+          <div class="logo">موازين</div>
           <p class="subtitle">المساعد القانوني الذكي</p>
           <form method="post" action="/api/local-login">
             <div class="form-group">
@@ -134,7 +134,7 @@ export function registerOAuthRoutes(app: Express) {
 
       // Instead of setting a cookie, return the token in the response
       // and redirect with the token as a query parameter
-      const frontendOrigin = process.env.FRONTEND_URL || "https://qaid.netlify.app";
+      const frontendOrigin = process.env.FRONTEND_URL || "http://localhost:5173";
       const redirect = typeof req.body.redirect === "string" ? req.body.redirect : "";
       const redirectQuery = redirect ? `&redirect=${encodeURIComponent(redirect)}` : "";
       const redirectUrl = `${frontendOrigin}?token=${sessionToken}${redirectQuery}`;
@@ -154,9 +154,25 @@ export function registerOAuthRoutes(app: Express) {
       const name = req.body.name || "مستخدم تجريبي";
       const email = req.body.email || "test@example.com";
       const phone = typeof req.body.phone === "string" ? req.body.phone : undefined;
+      const requestedPlanRaw =
+        (typeof req.body.plan === "string" ? req.body.plan : undefined) ||
+        (typeof req.body.accountType === "string" ? req.body.accountType : undefined) ||
+        (typeof req.body.subscriptionPlan === "string" ? req.body.subscriptionPlan : undefined);
+      const requestedPlan =
+        requestedPlanRaw === "law_firm" || requestedPlanRaw === "enterprise"
+          ? requestedPlanRaw
+          : "individual";
+      const seatLimit =
+        requestedPlan === "law_firm" ? 5 : requestedPlan === "enterprise" ? 15 : 1;
       const mode = req.body.mode === "pay" ? "pay" : "trial";
       const isActive = mode === "trial";
       const openId = `local-${email.replace(/[^a-zA-Z0-9]/g, '')}`;
+
+      const organizationId = await db.createOrganization({
+        name: (typeof req.body.lawFirm === "string" && req.body.lawFirm.trim()) ? req.body.lawFirm.trim() : name,
+        subscriptionPlan: requestedPlan,
+        seatLimit,
+      });
 
       await db.upsertUser({
         openId,
@@ -164,6 +180,11 @@ export function registerOAuthRoutes(app: Express) {
         email,
         phone,
         loginMethod: "local",
+        organizationId,
+        role: "admin",
+        accountType: requestedPlan,
+        subscriptionPlan: requestedPlan,
+        seatLimit,
         isActive,
         lastSignedIn: new Date(),
       });

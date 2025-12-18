@@ -139,7 +139,7 @@ export default function Dashboard() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-foreground">
-              مرحباً بك في قيد
+              مرحباً بك في موازين
             </h1>
             <p className="text-muted-foreground mt-1">
               نظرة عامة على أداء مكتبك القانوني

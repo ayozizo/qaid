@@ -8,4 +8,13 @@ export const ENV = {
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
   forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
   openaiApiKey: process.env.OPENAI_API_KEY ?? "",
+  legalCrawlerEnabled: process.env.LEGAL_CRAWLER_ENABLED === "true",
+  legalCrawlerIntervalMinutes: Number(process.env.LEGAL_CRAWLER_INTERVAL_MINUTES ?? "180"),
+  legalCrawlerMaxPagesPerRun: Number(process.env.LEGAL_CRAWLER_MAX_PAGES_PER_RUN ?? "20"),
+  legalCrawlerUserAgent:
+    process.env.LEGAL_CRAWLER_USER_AGENT ?? "qayd-legal-assistant/1.0 (+contact: admin@localhost)",
+  legalCrawlerSeedSitemaps: (process.env.LEGAL_CRAWLER_SEED_SITEMAPS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean),
 };

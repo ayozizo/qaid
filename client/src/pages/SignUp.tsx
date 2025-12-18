@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
-import { Scale, Sparkles, Eye, EyeOff, Mail, User, Shield, Phone, Building } from "lucide-react";
+import { Scale, Sparkles, Eye, EyeOff, Mail, User, Shield, Phone, Building, CheckCircle2 } from "lucide-react";
 
 export default function SignUp() {
   const [, setLocation] = useLocation();
@@ -8,12 +8,46 @@ export default function SignUp() {
   const [showPassword, setShowPassword] = useState(false);
   const [signupMode, setSignupMode] = useState<"trial" | "pay">("trial");
   const backendOrigin = import.meta.env.VITE_BACKEND_ORIGIN ?? "";
+  type AccountType = "individual" | "law_firm" | "enterprise";
+  const planDetails: Record<AccountType, { name: string; features: string[] }> = {
+    individual: {
+      name: "فردي",
+      features: [
+        "عدد المستخدمين: 1",
+        "مساعد قانوني ذكي متخصص في الأنظمة السعودية",
+        "تحليل القضايا والاستشارات وصياغة المستندات حسب الاستخدام العادل",
+        "تفعيل الاشتراك في بيئة الإنتاج يتم عبر القنوات المعتمدة",
+      ],
+    },
+    law_firm: {
+      name: "مكتب محاماة",
+      features: [
+        "عدد المستخدمين: 5",
+        "إدارة الفريق والصلاحيات داخل النظام",
+        "مساعد قانوني ذكي متخصص في الأنظمة السعودية",
+        "تحليل القضايا والاستشارات وصياغة المستندات حسب الاستخدام العادل",
+        "تفعيل الاشتراك في بيئة الإنتاج يتم عبر القنوات المعتمدة",
+      ],
+    },
+    enterprise: {
+      name: "منشأة",
+      features: [
+        "عدد المستخدمين: 15",
+        "إدارة الفريق والصلاحيات داخل النظام",
+        "مساعد قانوني ذكي متخصص في الأنظمة السعودية",
+        "تحليل القضايا والاستشارات وصياغة المستندات حسب الاستخدام العادل",
+        "تفعيل الاشتراك في بيئة الإنتاج يتم عبر القنوات المعتمدة",
+      ],
+    },
+  };
+
   const [formData, setFormData] = useState({
     name: "",
     email: "",
     password: "",
     phone: "",
-    lawFirm: ""
+    lawFirm: "",
+    accountType: "individual" as "individual" | "law_firm" | "enterprise",
   });
 
   useEffect(() => {
@@ -31,7 +65,8 @@ export default function SignUp() {
       name: formData.name, 
       email: formData.email,
       phone: formData.phone,
-      lawFirm: formData.lawFirm
+      lawFirm: formData.lawFirm,
+      accountType: formData.accountType,
     });
 
     try {
@@ -52,8 +87,13 @@ export default function SignUp() {
       addHiddenField('password', formData.password);
       addHiddenField('phone', formData.phone);
       addHiddenField('lawFirm', formData.lawFirm);
+      addHiddenField('accountType', formData.accountType);
       addHiddenField('mode', signupMode);
-      addHiddenField('redirect', signupMode === 'pay' ? '/payments' : '/dashboard');
+      const redirectTarget =
+        signupMode === 'pay'
+          ? `/payments?plan=${encodeURIComponent(formData.accountType)}`
+          : '/dashboard';
+      addHiddenField('redirect', redirectTarget);
 
       console.log('[SignUp] Submitting form to:', form.action);
 
@@ -88,7 +128,7 @@ export default function SignUp() {
             <Scale className="h-8 w-8 text-gold" />
           </div>
           <h1 className="text-3xl font-bold text-foreground mb-2">
-            <span className="text-gold">قيد</span>
+            <span className="text-gold">موازين</span>
           </h1>
           <p className="text-muted-foreground">انضم إلى نظام إدارة القضايا القانونية المتقدم</p>
         </div>
@@ -98,7 +138,7 @@ export default function SignUp() {
           <div className="text-center pb-4">
             <h2 className="text-2xl font-bold text-foreground">إنشاء حساب جديد</h2>
             <p className="text-muted-foreground text-sm mt-2">
-              ابدأ رحلتك مع نظام قيد لإدارة القضايا
+              ابدأ رحلتك مع نظام موازين لإدارة القضايا
             </p>
           </div>
 
@@ -130,6 +170,66 @@ export default function SignUp() {
           </div>
           
           <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Account Type / Plan */}
+            <div className="space-y-2">
+              <label className="text-right flex items-center gap-2 text-sm font-medium">
+                <Shield className="h-4 w-4" />
+                نوع الحساب
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, accountType: "individual" })}
+                  className={`py-2 rounded-lg border text-sm font-medium transition-colors ${
+                    formData.accountType === "individual"
+                      ? 'bg-gold text-black border-gold'
+                      : 'bg-transparent text-foreground border-border/60 hover:border-gold/50'
+                  }`}
+                >
+                  فردي
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, accountType: "law_firm" })}
+                  className={`py-2 rounded-lg border text-sm font-medium transition-colors ${
+                    formData.accountType === "law_firm"
+                      ? 'bg-gold text-black border-gold'
+                      : 'bg-transparent text-foreground border-border/60 hover:border-gold/50'
+                  }`}
+                >
+                  مكتب محاماة
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, accountType: "enterprise" })}
+                  className={`py-2 rounded-lg border text-sm font-medium transition-colors ${
+                    formData.accountType === "enterprise"
+                      ? 'bg-gold text-black border-gold'
+                      : 'bg-transparent text-foreground border-border/60 hover:border-gold/50'
+                  }`}
+                >
+                  منشأة
+                </button>
+              </div>
+              <p className="text-xs text-muted-foreground text-right">
+                حد المستخدمين: {formData.accountType === "law_firm" ? "5" : formData.accountType === "enterprise" ? "15" : "1"}
+              </p>
+
+              <div className="rounded-lg border border-border/60 bg-secondary/20 p-3">
+                <p className="text-sm font-medium text-foreground text-right mb-2">
+                  مميزات باقة {planDetails[formData.accountType].name}
+                </p>
+                <ul className="space-y-2 text-xs text-muted-foreground">
+                  {planDetails[formData.accountType].features.map((feature) => (
+                    <li key={feature} className="flex items-center gap-2">
+                      <CheckCircle2 className="h-4 w-4 text-gold flex-shrink-0" />
+                      <span className="text-right">{feature}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+
             {/* Name Field */}
             <div className="space-y-2">
               <label htmlFor="name" className="text-right flex items-center gap-2 text-sm font-medium">
@@ -288,7 +388,7 @@ export default function SignUp() {
         {/* Footer */}
         <div className="text-center mt-8">
           <p className="text-xs text-muted-foreground">
-            © 2024 قيد. جميع الحقوق محفوظة.
+            © 2024 موازين. جميع الحقوق محفوظة.
           </p>
         </div>
       </div>

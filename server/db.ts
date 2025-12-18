@@ -1,6 +1,8 @@
-import { eq, desc, and, like, or, sql, gte, lte, count } from "drizzle-orm";
+import { eq, desc, and, like, or, sql, gte, lte, count, asc } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
+  organizations,
+  InsertOrganization,
   InsertUser,
   users,
   clients,
@@ -15,6 +17,18 @@ import {
   aiChatHistory,
   notifications,
   timeEntries,
+  serviceCatalog,
+  serviceRequests,
+  sitePages,
+  publicTeamMembers,
+  practiceAreas,
+  testimonials,
+  contactMessages,
+  blogPosts,
+  toolUsage,
+  legalSourceDocuments,
+  legalSourceChunks,
+  legalCrawlerRuns,
   InsertClient,
   InsertCase,
   InsertHearing,
@@ -27,14 +41,40 @@ import {
   InsertAiChatHistory,
   InsertNotification,
   InsertTimeEntry,
+  InsertServiceCatalogItem,
+  InsertServiceRequest,
+  InsertSitePage,
+  InsertPublicTeamMember,
+  InsertPracticeArea,
+  InsertTestimonial,
+  InsertContactMessage,
+  InsertBlogPost,
+  InsertToolUsage,
+  InsertLegalSourceDocument,
+  InsertLegalSourceChunk,
+  InsertLegalCrawlerRun,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
+let _schemaInitPromise: Promise<void> | null = null;
 
 // In-memory user storage for local development
 const inMemoryUsers = new Map<string, any>();
+const inMemoryOrganizations = new Map<number, any>();
 const inMemoryDocuments = new Map<number, any>();
+const inMemoryServiceCatalog = new Map<number, any>();
+const inMemoryServiceRequests = new Map<number, any>();
+const inMemorySitePages = new Map<number, any>();
+const inMemoryPublicTeamMembers = new Map<number, any>();
+const inMemoryPracticeAreas = new Map<number, any>();
+const inMemoryTestimonials = new Map<number, any>();
+const inMemoryContactMessages = new Map<number, any>();
+const inMemoryBlogPosts = new Map<number, any>();
+const inMemoryToolUsage = new Map<string, any>();
+const inMemoryLegalDocuments = new Map<number, any>();
+const inMemoryLegalChunks = new Map<number, any>();
+const inMemoryLegalRuns = new Map<number, any>();
 
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
@@ -44,8 +84,957 @@ export async function getDb() {
       console.warn("[Database] Failed to connect:", error);
       _db = null;
     }
+
+  }
+  if (_db) {
+    await ensureSchemaInitialized(_db);
   }
   return _db;
+}
+
+async function ensureSchemaInitialized(db: ReturnType<typeof drizzle>) {
+  if (_schemaInitPromise) return _schemaInitPromise;
+  _schemaInitPromise = (async () => {
+    try {
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS organizations (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          name VARCHAR(255) NULL,
+          subscriptionPlan ENUM('individual','law_firm','enterprise') NOT NULL DEFAULT 'individual',
+          seatLimit INT NOT NULL DEFAULT 1,
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )
+      `);
+
+      const colCheck: any = await db.execute(sql`
+        SELECT COUNT(*) AS cnt
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'users'
+          AND COLUMN_NAME = 'organizationId'
+      `);
+
+      const rows = (colCheck as any)?.[0] ?? (colCheck as any)?.rows ?? colCheck;
+      const cntRaw = Array.isArray(rows) ? rows[0]?.cnt : (rows as any)?.cnt;
+      const cnt = typeof cntRaw === "number" ? cntRaw : Number(cntRaw ?? 0);
+
+      if (!Number.isFinite(cnt) || cnt <= 0) {
+        await db.execute(sql`
+          ALTER TABLE users
+          ADD COLUMN organizationId INT NULL
+        `);
+      }
+
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS serviceCatalog (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          organizationId INT NOT NULL,
+          title VARCHAR(255) NOT NULL,
+          description TEXT NULL,
+          durationMinutes INT NOT NULL DEFAULT 60,
+          priceAmount BIGINT NOT NULL DEFAULT 0,
+          currency VARCHAR(10) NOT NULL DEFAULT 'SAR',
+          isActive BOOLEAN NOT NULL DEFAULT TRUE,
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )
+      `);
+
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS serviceRequests (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          organizationId INT NOT NULL,
+          serviceId INT NULL,
+          clientName VARCHAR(255) NOT NULL,
+          clientEmail VARCHAR(320) NULL,
+          clientPhone VARCHAR(20) NULL,
+          notes TEXT NULL,
+          preferredAt TIMESTAMP NULL,
+          status ENUM('new','in_progress','completed','cancelled') NOT NULL DEFAULT 'new',
+          assignedToUserId INT NULL,
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )
+      `);
+
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS sitePages (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          organizationId INT NOT NULL,
+          slug VARCHAR(100) NOT NULL,
+          title VARCHAR(255) NOT NULL,
+          content TEXT NULL,
+          isPublished BOOLEAN NOT NULL DEFAULT TRUE,
+          updatedByUserId INT NULL,
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )
+      `);
+
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS publicTeamMembers (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          organizationId INT NOT NULL,
+          name VARCHAR(255) NOT NULL,
+          title VARCHAR(255) NULL,
+          bio TEXT NULL,
+          avatarUrl TEXT NULL,
+          sortOrder INT NOT NULL DEFAULT 0,
+          isActive BOOLEAN NOT NULL DEFAULT TRUE,
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )
+      `);
+
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS practiceAreas (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          organizationId INT NOT NULL,
+          title VARCHAR(255) NOT NULL,
+          description TEXT NULL,
+          sortOrder INT NOT NULL DEFAULT 0,
+          isActive BOOLEAN NOT NULL DEFAULT TRUE,
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )
+      `);
+
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS testimonials (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          organizationId INT NOT NULL,
+          clientName VARCHAR(255) NOT NULL,
+          clientTitle VARCHAR(255) NULL,
+          content TEXT NOT NULL,
+          rating INT NOT NULL DEFAULT 5,
+          isPublished BOOLEAN NOT NULL DEFAULT TRUE,
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )
+      `);
+
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS contactMessages (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          organizationId INT NOT NULL,
+          name VARCHAR(255) NOT NULL,
+          email VARCHAR(320) NULL,
+          phone VARCHAR(20) NULL,
+          message TEXT NOT NULL,
+          status ENUM('new','replied','closed') NOT NULL DEFAULT 'new',
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS blogPosts (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          organizationId INT NOT NULL,
+          slug VARCHAR(150) NOT NULL,
+          title VARCHAR(255) NOT NULL,
+          excerpt TEXT NULL,
+          content TEXT NULL,
+          isPublished BOOLEAN NOT NULL DEFAULT TRUE,
+          publishedAt TIMESTAMP NULL,
+          updatedByUserId INT NULL,
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )
+      `);
+
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS toolUsage (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          organizationId INT NOT NULL,
+          tool VARCHAR(64) NOT NULL,
+          day VARCHAR(10) NOT NULL,
+          count INT NOT NULL DEFAULT 0,
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )
+      `);
+
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS legalSourceDocuments (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          source VARCHAR(64) NOT NULL,
+          url TEXT NOT NULL,
+          title TEXT NULL,
+          contentText TEXT NULL,
+          contentHash VARCHAR(64) NULL,
+          httpStatus INT NULL,
+          etag VARCHAR(255) NULL,
+          lastModified VARCHAR(255) NULL,
+          fetchedAt TIMESTAMP NULL,
+          status ENUM('ok','error','skipped') NOT NULL DEFAULT 'ok',
+          error TEXT NULL,
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )
+      `);
+
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS legalSourceChunks (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          documentId INT NOT NULL,
+          chunkIndex INT NOT NULL,
+          text TEXT NOT NULL,
+          embeddingJson TEXT NULL,
+          metaJson TEXT NULL,
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )
+      `);
+
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS legalCrawlerRuns (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          startedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          finishedAt TIMESTAMP NULL,
+          status ENUM('running','success','error') NOT NULL DEFAULT 'running',
+          pagesCrawled INT NOT NULL DEFAULT 0,
+          documentsUpdated INT NOT NULL DEFAULT 0,
+          error TEXT NULL
+        )
+      `);
+    } catch (error) {
+      console.warn("[Database] Schema initialization failed:", error);
+    }
+  })();
+  return _schemaInitPromise;
+}
+
+export async function createLegalCrawlerRun(run: InsertLegalCrawlerRun) {
+  const db = await getDb();
+  if (!db) {
+    const id = Date.now();
+    inMemoryLegalRuns.set(id, { id, ...run });
+    return id;
+  }
+  const result = await db.insert(legalCrawlerRuns).values(run as any);
+  return result[0].insertId;
+}
+
+export async function finishLegalCrawlerRun(params: {
+  id: number;
+  status: "success" | "error";
+  pagesCrawled: number;
+  documentsUpdated: number;
+  error?: string | null;
+}) {
+  const db = await getDb();
+  if (!db) {
+    const existing = inMemoryLegalRuns.get(params.id) ?? { id: params.id };
+    inMemoryLegalRuns.set(params.id, {
+      ...existing,
+      status: params.status,
+      pagesCrawled: params.pagesCrawled,
+      documentsUpdated: params.documentsUpdated,
+      error: params.error ?? null,
+      finishedAt: new Date(),
+    });
+    return;
+  }
+
+  await db
+    .update(legalCrawlerRuns)
+    .set({
+      status: params.status,
+      pagesCrawled: params.pagesCrawled,
+      documentsUpdated: params.documentsUpdated,
+      error: params.error ?? null,
+      finishedAt: new Date(),
+    } as any)
+    .where(eq(legalCrawlerRuns.id, params.id));
+}
+
+export async function upsertLegalSourceDocument(doc: InsertLegalSourceDocument) {
+  const dbConn = await getDb();
+  if (!dbConn) {
+    const existing = Array.from(inMemoryLegalDocuments.values()).find((d) => d.source === doc.source && d.url === doc.url);
+    if (existing?.id) {
+      inMemoryLegalDocuments.set(existing.id, { ...existing, ...doc, updatedAt: new Date() });
+      return existing.id as number;
+    }
+    const id = Date.now();
+    inMemoryLegalDocuments.set(id, { id, ...doc, createdAt: new Date(), updatedAt: new Date() });
+    return id;
+  }
+
+  const existing = await dbConn
+    .select({ id: legalSourceDocuments.id, contentHash: legalSourceDocuments.contentHash })
+    .from(legalSourceDocuments)
+    .where(and(eq(legalSourceDocuments.source, doc.source), eq(legalSourceDocuments.url, doc.url)))
+    .limit(1);
+
+  if (existing[0]?.id) {
+    await dbConn.update(legalSourceDocuments).set(doc as any).where(eq(legalSourceDocuments.id, existing[0].id));
+    return existing[0].id;
+  }
+
+  const result = await dbConn.insert(legalSourceDocuments).values(doc as any);
+  return result[0].insertId;
+}
+
+export async function getLegalSourceDocumentBySourceUrl(params: { source: string; url: string }) {
+  const dbConn = await getDb();
+  if (!dbConn) {
+    return Array.from(inMemoryLegalDocuments.values()).find((d) => d.source === params.source && d.url === params.url) ?? null;
+  }
+  const rows = await dbConn
+    .select()
+    .from(legalSourceDocuments)
+    .where(and(eq(legalSourceDocuments.source, params.source), eq(legalSourceDocuments.url, params.url)))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function replaceLegalChunksForDocument(params: { documentId: number; chunks: Array<Omit<InsertLegalSourceChunk, "documentId">> }) {
+  const dbConn = await getDb();
+  if (!dbConn) {
+    // Remove old chunks
+    for (const [id, chunk] of Array.from(inMemoryLegalChunks.entries())) {
+      if (chunk.documentId === params.documentId) inMemoryLegalChunks.delete(id);
+    }
+    for (const c of params.chunks) {
+      const id = Date.now() + Math.floor(Math.random() * 1000);
+      inMemoryLegalChunks.set(id, { id, documentId: params.documentId, ...c, createdAt: new Date(), updatedAt: new Date() });
+    }
+    return;
+  }
+
+  await dbConn.delete(legalSourceChunks).where(eq(legalSourceChunks.documentId, params.documentId));
+  if (params.chunks.length === 0) return;
+
+  await dbConn.insert(legalSourceChunks).values(
+    params.chunks.map((c) => ({
+      documentId: params.documentId,
+      ...c,
+    })) as any
+  );
+}
+
+export async function listLegalChunksWithEmbeddings(params: { limit: number }) {
+  const dbConn = await getDb();
+  if (!dbConn) {
+    const chunks = Array.from(inMemoryLegalChunks.values())
+      .filter((c) => typeof c.embeddingJson === "string" && c.embeddingJson.length > 0)
+      .slice(0, params.limit);
+    const docById = new Map<number, any>(Array.from(inMemoryLegalDocuments.values()).map((d) => [d.id, d]));
+    return chunks.map((c) => ({
+      ...c,
+      document: docById.get(c.documentId) ?? null,
+    }));
+  }
+
+  const rows = await dbConn
+    .select({
+      chunkId: legalSourceChunks.id,
+      documentId: legalSourceChunks.documentId,
+      chunkIndex: legalSourceChunks.chunkIndex,
+      text: legalSourceChunks.text,
+      embeddingJson: legalSourceChunks.embeddingJson,
+      metaJson: legalSourceChunks.metaJson,
+      url: legalSourceDocuments.url,
+      source: legalSourceDocuments.source,
+      title: legalSourceDocuments.title,
+    })
+    .from(legalSourceChunks)
+    .innerJoin(legalSourceDocuments, eq(legalSourceDocuments.id, legalSourceChunks.documentId))
+    .where(sql`${legalSourceChunks.embeddingJson} IS NOT NULL`)
+    .limit(params.limit);
+
+  return rows;
+}
+
+function toDayKey(date: Date) {
+  // YYYY-MM-DD
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+export async function getToolUsageCount(params: { organizationId: number; tool: string; day?: string }) {
+  const day = params.day ?? toDayKey(new Date());
+  const db = await getDb();
+  if (!db) {
+    const key = `${params.organizationId}:${params.tool}:${day}`;
+    return inMemoryToolUsage.get(key)?.count ?? 0;
+  }
+
+  const rows = await db
+    .select({ count: toolUsage.count })
+    .from(toolUsage)
+    .where(and(eq(toolUsage.organizationId, params.organizationId), eq(toolUsage.tool, params.tool), eq(toolUsage.day, day)))
+    .limit(1);
+
+  return rows[0]?.count ?? 0;
+}
+
+export async function incrementToolUsage(params: { organizationId: number; tool: string; increment?: number; day?: string }) {
+  const day = params.day ?? toDayKey(new Date());
+  const inc = params.increment ?? 1;
+  const db = await getDb();
+  if (!db) {
+    const key = `${params.organizationId}:${params.tool}:${day}`;
+    const existing = inMemoryToolUsage.get(key) ?? { count: 0 };
+    inMemoryToolUsage.set(key, { ...existing, count: (existing.count ?? 0) + inc, updatedAt: new Date() });
+    return;
+  }
+
+  const existing = await db
+    .select({ id: toolUsage.id, count: toolUsage.count })
+    .from(toolUsage)
+    .where(and(eq(toolUsage.organizationId, params.organizationId), eq(toolUsage.tool, params.tool), eq(toolUsage.day, day)))
+    .limit(1);
+
+  if (existing[0]?.id) {
+    await db.update(toolUsage).set({ count: (existing[0].count ?? 0) + inc } as any).where(eq(toolUsage.id, existing[0].id));
+    return;
+  }
+
+  const row: InsertToolUsage = {
+    organizationId: params.organizationId,
+    tool: params.tool,
+    day,
+    count: inc,
+  };
+  await db.insert(toolUsage).values(row);
+}
+
+export async function getDefaultPublicOrganizationId() {
+  if (ENV.ownerOpenId) {
+    const owner = await getUserByOpenId(ENV.ownerOpenId);
+    if (owner?.organizationId) return owner.organizationId;
+  }
+
+  const db = await getDb();
+  if (!db) {
+    const first = Array.from(inMemoryOrganizations.keys()).sort((a, b) => a - b)[0];
+    if (first) return first;
+    const id = await createOrganization({
+      name: "Default",
+      subscriptionPlan: "individual",
+      seatLimit: 1,
+    });
+    return id;
+  }
+
+  const orgs = await db.select({ id: organizations.id }).from(organizations).orderBy(asc(organizations.id)).limit(1);
+  if (orgs[0]?.id) return orgs[0].id;
+
+  const id = await createOrganization({
+    name: "Default",
+    subscriptionPlan: "individual",
+    seatLimit: 1,
+  });
+  return id;
+}
+
+// ==================== ORGANIZATION FUNCTIONS ====================
+export async function createOrganization(org: InsertOrganization) {
+  const db = await getDb();
+  if (!db) {
+    const id = Date.now();
+    inMemoryOrganizations.set(id, {
+      id,
+      ...org,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    return id;
+  }
+
+  const result = await db.insert(organizations).values(org);
+  return result[0].insertId;
+}
+
+export async function getOrganizationById(orgId: number) {
+  const db = await getDb();
+  if (!db) return inMemoryOrganizations.get(orgId);
+  const result = await db
+    .select()
+    .from(organizations)
+    .where(eq(organizations.id, orgId))
+    .limit(1);
+  return result[0];
+}
+
+export async function setOrganizationSubscriptionPlan(params: {
+  organizationId: number;
+  subscriptionPlan: "individual" | "law_firm" | "enterprise";
+  seatLimit: number;
+}) {
+  const db = await getDb();
+  if (!db) {
+    const org = inMemoryOrganizations.get(params.organizationId);
+    if (!org) throw new Error("Organization not found");
+    inMemoryOrganizations.set(params.organizationId, {
+      ...org,
+      subscriptionPlan: params.subscriptionPlan,
+      seatLimit: params.seatLimit,
+      updatedAt: new Date(),
+    });
+    return;
+  }
+
+  await db
+    .update(organizations)
+    .set({
+      subscriptionPlan: params.subscriptionPlan,
+      seatLimit: params.seatLimit,
+    })
+    .where(eq(organizations.id, params.organizationId));
+}
+
+export async function getOrganizationMemberCount(organizationId: number) {
+  const db = await getDb();
+  if (!db) {
+    let c = 0;
+    for (const u of inMemoryUsers.values()) {
+      if (u?.organizationId === organizationId) c += 1;
+    }
+    return c;
+  }
+  const result = await db
+    .select({ count: count() })
+    .from(users)
+    .where(eq(users.organizationId, organizationId));
+  return result[0]?.count ?? 0;
+}
+
+export async function getUsersByOrganizationId(organizationId: number) {
+  const db = await getDb();
+  if (!db) {
+    const list: any[] = [];
+    for (const u of inMemoryUsers.values()) {
+      if (u?.organizationId === organizationId) list.push(u);
+    }
+    list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return list;
+  }
+  return db
+    .select()
+    .from(users)
+    .where(eq(users.organizationId, organizationId))
+    .orderBy(desc(users.createdAt));
+}
+
+export async function getServiceCatalogByOrganizationId(organizationId: number, onlyActive = false) {
+  const db = await getDb();
+  if (!db) {
+    const list: any[] = [];
+    for (const s of inMemoryServiceCatalog.values()) {
+      if (s?.organizationId !== organizationId) continue;
+      if (onlyActive && !s?.isActive) continue;
+      list.push(s);
+    }
+    list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return list;
+  }
+  const whereClause = onlyActive
+    ? and(eq(serviceCatalog.organizationId, organizationId), eq(serviceCatalog.isActive, true))
+    : eq(serviceCatalog.organizationId, organizationId);
+  return db.select().from(serviceCatalog).where(whereClause).orderBy(desc(serviceCatalog.createdAt));
+}
+
+export async function createServiceCatalogItem(item: InsertServiceCatalogItem) {
+  const db = await getDb();
+  if (!db) {
+    const id = Date.now();
+    inMemoryServiceCatalog.set(id, {
+      id,
+      ...item,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    return id;
+  }
+  const result = await db.insert(serviceCatalog).values(item);
+  return result[0].insertId;
+}
+
+export async function updateServiceCatalogItem(id: number, data: Partial<InsertServiceCatalogItem>) {
+  const db = await getDb();
+  if (!db) {
+    const existing = inMemoryServiceCatalog.get(id);
+    if (!existing) throw new Error("Service not found");
+    inMemoryServiceCatalog.set(id, { ...existing, ...data, updatedAt: new Date() });
+    return;
+  }
+  await db.update(serviceCatalog).set(data as any).where(eq(serviceCatalog.id, id));
+}
+
+export async function createServiceRequest(req: InsertServiceRequest) {
+  const db = await getDb();
+  if (!db) {
+    const id = Date.now();
+    inMemoryServiceRequests.set(id, {
+      id,
+      ...req,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    return id;
+  }
+  const result = await db.insert(serviceRequests).values(req);
+  return result[0].insertId;
+}
+
+export async function getServiceRequestsByOrganizationId(organizationId: number, status?: "new" | "in_progress" | "completed" | "cancelled") {
+  const db = await getDb();
+  if (!db) {
+    const list: any[] = [];
+    for (const r of inMemoryServiceRequests.values()) {
+      if (r?.organizationId !== organizationId) continue;
+      if (status && r?.status !== status) continue;
+      list.push(r);
+    }
+    list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return list;
+  }
+
+  const whereClause = status
+    ? and(eq(serviceRequests.organizationId, organizationId), eq(serviceRequests.status, status))
+    : eq(serviceRequests.organizationId, organizationId);
+
+  return db.select().from(serviceRequests).where(whereClause).orderBy(desc(serviceRequests.createdAt));
+}
+
+export async function updateServiceRequest(id: number, data: Partial<InsertServiceRequest>) {
+  const db = await getDb();
+  if (!db) {
+    const existing = inMemoryServiceRequests.get(id);
+    if (!existing) throw new Error("Service request not found");
+    inMemoryServiceRequests.set(id, { ...existing, ...data, updatedAt: new Date() });
+    return;
+  }
+  await db.update(serviceRequests).set(data as any).where(eq(serviceRequests.id, id));
+}
+
+export async function getSitePageBySlug(params: { organizationId: number; slug: string; onlyPublished?: boolean }) {
+  const db = await getDb();
+  if (!db) {
+    for (const p of inMemorySitePages.values()) {
+      if (p?.organizationId !== params.organizationId) continue;
+      if (p?.slug !== params.slug) continue;
+      if (params.onlyPublished && !p?.isPublished) continue;
+      return p;
+    }
+    return undefined;
+  }
+
+  const whereClause = params.onlyPublished
+    ? and(eq(sitePages.organizationId, params.organizationId), eq(sitePages.slug, params.slug), eq(sitePages.isPublished, true))
+    : and(eq(sitePages.organizationId, params.organizationId), eq(sitePages.slug, params.slug));
+
+  const result = await db.select().from(sitePages).where(whereClause).limit(1);
+  return result[0];
+}
+
+export async function upsertSitePage(page: InsertSitePage) {
+  const db = await getDb();
+  if (!db) {
+    const existing = Array.from(inMemorySitePages.values()).find(
+      (p) => p?.organizationId === page.organizationId && p?.slug === page.slug
+    );
+    if (existing) {
+      inMemorySitePages.set(existing.id, { ...existing, ...page, updatedAt: new Date() });
+      return existing.id;
+    }
+    const id = Date.now();
+    inMemorySitePages.set(id, { id, ...page, createdAt: new Date(), updatedAt: new Date() });
+    return id;
+  }
+
+  const existing = await db
+    .select({ id: sitePages.id })
+    .from(sitePages)
+    .where(and(eq(sitePages.organizationId, page.organizationId), eq(sitePages.slug, page.slug)))
+    .limit(1);
+
+  if (existing[0]?.id) {
+    await db.update(sitePages).set(page as any).where(eq(sitePages.id, existing[0].id));
+    return existing[0].id;
+  }
+
+  const result = await db.insert(sitePages).values(page);
+  return result[0].insertId;
+}
+
+export async function listSitePagesByOrganizationId(organizationId: number) {
+  const db = await getDb();
+  if (!db) {
+    const list: any[] = [];
+    for (const p of inMemorySitePages.values()) {
+      if (p?.organizationId === organizationId) list.push(p);
+    }
+    list.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    return list;
+  }
+  return db.select().from(sitePages).where(eq(sitePages.organizationId, organizationId)).orderBy(desc(sitePages.updatedAt));
+}
+
+export async function listPublicTeamMembers(organizationId: number, onlyActive = true) {
+  const db = await getDb();
+  if (!db) {
+    const list: any[] = [];
+    for (const m of inMemoryPublicTeamMembers.values()) {
+      if (m?.organizationId !== organizationId) continue;
+      if (onlyActive && !m?.isActive) continue;
+      list.push(m);
+    }
+    list.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+    return list;
+  }
+  const whereClause = onlyActive
+    ? and(eq(publicTeamMembers.organizationId, organizationId), eq(publicTeamMembers.isActive, true))
+    : eq(publicTeamMembers.organizationId, organizationId);
+  return db.select().from(publicTeamMembers).where(whereClause).orderBy(asc(publicTeamMembers.sortOrder));
+}
+
+export async function createPublicTeamMember(member: InsertPublicTeamMember) {
+  const db = await getDb();
+  if (!db) {
+    const id = Date.now();
+    inMemoryPublicTeamMembers.set(id, { id, ...member, createdAt: new Date(), updatedAt: new Date() });
+    return id;
+  }
+  const result = await db.insert(publicTeamMembers).values(member);
+  return result[0].insertId;
+}
+
+export async function updatePublicTeamMember(id: number, data: Partial<InsertPublicTeamMember>) {
+  const db = await getDb();
+  if (!db) {
+    const existing = inMemoryPublicTeamMembers.get(id);
+    if (!existing) throw new Error("Team member not found");
+    inMemoryPublicTeamMembers.set(id, { ...existing, ...data, updatedAt: new Date() });
+    return;
+  }
+  await db.update(publicTeamMembers).set(data as any).where(eq(publicTeamMembers.id, id));
+}
+
+export async function listPracticeAreas(organizationId: number, onlyActive = true) {
+  const db = await getDb();
+  if (!db) {
+    const list: any[] = [];
+    for (const a of inMemoryPracticeAreas.values()) {
+      if (a?.organizationId !== organizationId) continue;
+      if (onlyActive && !a?.isActive) continue;
+      list.push(a);
+    }
+    list.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+    return list;
+  }
+  const whereClause = onlyActive
+    ? and(eq(practiceAreas.organizationId, organizationId), eq(practiceAreas.isActive, true))
+    : eq(practiceAreas.organizationId, organizationId);
+  return db.select().from(practiceAreas).where(whereClause).orderBy(asc(practiceAreas.sortOrder));
+}
+
+export async function createPracticeArea(area: InsertPracticeArea) {
+  const db = await getDb();
+  if (!db) {
+    const id = Date.now();
+    inMemoryPracticeAreas.set(id, { id, ...area, createdAt: new Date(), updatedAt: new Date() });
+    return id;
+  }
+  const result = await db.insert(practiceAreas).values(area);
+  return result[0].insertId;
+}
+
+export async function updatePracticeArea(id: number, data: Partial<InsertPracticeArea>) {
+  const db = await getDb();
+  if (!db) {
+    const existing = inMemoryPracticeAreas.get(id);
+    if (!existing) throw new Error("Practice area not found");
+    inMemoryPracticeAreas.set(id, { ...existing, ...data, updatedAt: new Date() });
+    return;
+  }
+  await db.update(practiceAreas).set(data as any).where(eq(practiceAreas.id, id));
+}
+
+export async function listTestimonials(organizationId: number, onlyPublished = true) {
+  const db = await getDb();
+  if (!db) {
+    const list: any[] = [];
+    for (const t of inMemoryTestimonials.values()) {
+      if (t?.organizationId !== organizationId) continue;
+      if (onlyPublished && !t?.isPublished) continue;
+      list.push(t);
+    }
+    list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return list;
+  }
+  const whereClause = onlyPublished
+    ? and(eq(testimonials.organizationId, organizationId), eq(testimonials.isPublished, true))
+    : eq(testimonials.organizationId, organizationId);
+  return db.select().from(testimonials).where(whereClause).orderBy(desc(testimonials.createdAt));
+}
+
+export async function createTestimonial(t: InsertTestimonial) {
+  const db = await getDb();
+  if (!db) {
+    const id = Date.now();
+    inMemoryTestimonials.set(id, { id, ...t, createdAt: new Date(), updatedAt: new Date() });
+    return id;
+  }
+  const result = await db.insert(testimonials).values(t);
+  return result[0].insertId;
+}
+
+export async function updateTestimonial(id: number, data: Partial<InsertTestimonial>) {
+  const db = await getDb();
+  if (!db) {
+    const existing = inMemoryTestimonials.get(id);
+    if (!existing) throw new Error("Testimonial not found");
+    inMemoryTestimonials.set(id, { ...existing, ...data, updatedAt: new Date() });
+    return;
+  }
+  await db.update(testimonials).set(data as any).where(eq(testimonials.id, id));
+}
+
+export async function createContactMessage(msg: InsertContactMessage) {
+  const db = await getDb();
+  if (!db) {
+    const id = Date.now();
+    inMemoryContactMessages.set(id, { id, ...msg, createdAt: new Date() });
+    return id;
+  }
+  const result = await db.insert(contactMessages).values(msg);
+  return result[0].insertId;
+}
+
+export async function listContactMessagesByOrganizationId(organizationId: number, status?: "new" | "replied" | "closed") {
+  const db = await getDb();
+  if (!db) {
+    const list: any[] = [];
+    for (const m of inMemoryContactMessages.values()) {
+      if (m?.organizationId !== organizationId) continue;
+      if (status && m?.status !== status) continue;
+      list.push(m);
+    }
+    list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return list;
+  }
+  const whereClause = status
+    ? and(eq(contactMessages.organizationId, organizationId), eq(contactMessages.status, status))
+    : eq(contactMessages.organizationId, organizationId);
+  return db.select().from(contactMessages).where(whereClause).orderBy(desc(contactMessages.createdAt));
+}
+
+export async function updateContactMessageStatus(id: number, status: "new" | "replied" | "closed") {
+  const db = await getDb();
+  if (!db) {
+    const existing = inMemoryContactMessages.get(id);
+    if (!existing) throw new Error("Contact message not found");
+    inMemoryContactMessages.set(id, { ...existing, status });
+    return;
+  }
+  await db.update(contactMessages).set({ status } as any).where(eq(contactMessages.id, id));
+}
+
+export async function listBlogPostsByOrganizationId(organizationId: number, onlyPublished = true) {
+  const db = await getDb();
+  if (!db) {
+    const list: any[] = [];
+    for (const p of inMemoryBlogPosts.values()) {
+      if (p?.organizationId !== organizationId) continue;
+      if (onlyPublished && !p?.isPublished) continue;
+      list.push(p);
+    }
+    list.sort((a, b) => new Date(b.publishedAt ?? b.createdAt).getTime() - new Date(a.publishedAt ?? a.createdAt).getTime());
+    return list;
+  }
+
+  const whereClause = onlyPublished
+    ? and(eq(blogPosts.organizationId, organizationId), eq(blogPosts.isPublished, true))
+    : eq(blogPosts.organizationId, organizationId);
+
+  return db.select().from(blogPosts).where(whereClause).orderBy(desc(blogPosts.publishedAt), desc(blogPosts.createdAt));
+}
+
+export async function getBlogPostBySlug(params: { organizationId: number; slug: string; onlyPublished?: boolean }) {
+  const db = await getDb();
+  if (!db) {
+    for (const p of inMemoryBlogPosts.values()) {
+      if (p?.organizationId !== params.organizationId) continue;
+      if (p?.slug !== params.slug) continue;
+      if (params.onlyPublished && !p?.isPublished) continue;
+      return p;
+    }
+    return undefined;
+  }
+
+  const whereClause = params.onlyPublished
+    ? and(eq(blogPosts.organizationId, params.organizationId), eq(blogPosts.slug, params.slug), eq(blogPosts.isPublished, true))
+    : and(eq(blogPosts.organizationId, params.organizationId), eq(blogPosts.slug, params.slug));
+
+  const result = await db.select().from(blogPosts).where(whereClause).limit(1);
+  return result[0];
+}
+
+export async function upsertBlogPost(post: InsertBlogPost) {
+  const db = await getDb();
+  const now = new Date();
+  const normalized: InsertBlogPost = {
+    ...post,
+    publishedAt: post.isPublished ? (post.publishedAt ?? now) : (post.publishedAt ?? null),
+  };
+
+  if (!db) {
+    const existing = Array.from(inMemoryBlogPosts.values()).find(
+      (p) => p?.organizationId === normalized.organizationId && p?.slug === normalized.slug
+    );
+    if (existing) {
+      inMemoryBlogPosts.set(existing.id, { ...existing, ...normalized, updatedAt: now });
+      return existing.id;
+    }
+    const id = Date.now();
+    inMemoryBlogPosts.set(id, { id, ...normalized, createdAt: now, updatedAt: now });
+    return id;
+  }
+
+  const existing = await db
+    .select({ id: blogPosts.id })
+    .from(blogPosts)
+    .where(and(eq(blogPosts.organizationId, normalized.organizationId), eq(blogPosts.slug, normalized.slug)))
+    .limit(1);
+
+  if (existing[0]?.id) {
+    await db.update(blogPosts).set(normalized as any).where(eq(blogPosts.id, existing[0].id));
+    return existing[0].id;
+  }
+
+  const result = await db.insert(blogPosts).values(normalized);
+  return result[0].insertId;
+}
+
+export async function ensureUserHasOrganization(params: {
+  openId: string;
+  defaultOrganizationName?: string | null;
+}) {
+  const user = await getUserByOpenId(params.openId);
+  if (!user) throw new Error("User not found");
+  if (user.organizationId) return user.organizationId;
+
+  const fallbackPlan = user.subscriptionPlan ?? "individual";
+  const fallbackSeatLimit = user.seatLimit ?? 1;
+  const organizationId = await createOrganization({
+    name: params.defaultOrganizationName ?? user.name ?? null,
+    subscriptionPlan: fallbackPlan as any,
+    seatLimit: fallbackSeatLimit,
+  });
+
+  await upsertUser({
+    openId: user.openId,
+    organizationId,
+  });
+
+  return organizationId;
 }
 
 // ==================== USER FUNCTIONS ====================
@@ -88,6 +1077,33 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     };
 
     textFields.forEach(assignNullable);
+
+    if (user.organizationId !== undefined) {
+      const normalized = user.organizationId ?? null;
+      values.organizationId = normalized as any;
+      updateSet.organizationId = normalized;
+    }
+
+    if (user.accountType !== undefined) {
+      values.accountType = user.accountType;
+      updateSet.accountType = user.accountType;
+    } else {
+      values.accountType = "individual";
+    }
+
+    if (user.subscriptionPlan !== undefined) {
+      values.subscriptionPlan = user.subscriptionPlan;
+      updateSet.subscriptionPlan = user.subscriptionPlan;
+    } else {
+      values.subscriptionPlan = "individual";
+    }
+
+    if (user.seatLimit !== undefined) {
+      values.seatLimit = user.seatLimit;
+      updateSet.seatLimit = user.seatLimit;
+    } else {
+      values.seatLimit = 1;
+    }
 
     // By default، يتم إنشاء المستخدمين الجدد بدون اشتراك فعّال
     // لا نضيف isActive إلى updateSet إلا إذا تم تمريره صراحةً
@@ -162,6 +1178,39 @@ export async function setUserActive(userId: number, isActive: boolean) {
   }
 
   await db.update(users).set({ isActive }).where(eq(users.id, userId));
+}
+
+export async function setUserSubscriptionPlan(params: {
+  userId: number;
+  subscriptionPlan: "individual" | "law_firm" | "enterprise";
+  accountType: "individual" | "law_firm" | "enterprise";
+  seatLimit: number;
+}) {
+  const db = await getDb();
+  if (!db) {
+    for (const [openId, user] of inMemoryUsers.entries()) {
+      if (user?.id === params.userId) {
+        inMemoryUsers.set(openId, {
+          ...user,
+          subscriptionPlan: params.subscriptionPlan,
+          accountType: params.accountType,
+          seatLimit: params.seatLimit,
+          updatedAt: new Date(),
+        });
+        return;
+      }
+    }
+    throw new Error("User not found");
+  }
+
+  await db
+    .update(users)
+    .set({
+      subscriptionPlan: params.subscriptionPlan,
+      accountType: params.accountType,
+      seatLimit: params.seatLimit,
+    })
+    .where(eq(users.id, params.userId));
 }
 
 export async function getLawyers() {

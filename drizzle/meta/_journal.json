@@ -15,6 +15,13 @@
       "when": 1765393643322,
       "tag": "0001_lame_toad_men",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1766150000000,
+      "tag": "0002_soft_amber_wolf",
+      "breakpoints": true
     }
   ]
 }

@@ -1,28 +1,214 @@
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
+import { adminProcedure, publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { z } from "zod";
 import { invokeLLM } from "./_core/llm";
 import { nanoid } from "nanoid";
 import { TRPCError } from "@trpc/server";
 import * as db from "./db";
+ import { ENV } from "./_core/env";
+import { retrieveLegalSnippets, formatSnippetsForPrompt } from "./legalRetrieval";
+import { runLegalCrawlerOnce } from "./legalCrawler";
+
+type SubscriptionPlan = "individual" | "law_firm" | "enterprise";
+type ToolKey = "translate" | "compareTexts" | "predictCaseOutcome" | "inheritanceEstimate";
+
+const toolEntitlementsByPlan: Record<SubscriptionPlan, Record<ToolKey, { enabled: boolean; dailyLimit: number | null }>> = {
+  individual: {
+    translate: { enabled: true, dailyLimit: 10 },
+    compareTexts: { enabled: false, dailyLimit: 0 },
+    predictCaseOutcome: { enabled: false, dailyLimit: 0 },
+    inheritanceEstimate: { enabled: false, dailyLimit: 0 },
+  },
+  law_firm: {
+    translate: { enabled: true, dailyLimit: 50 },
+    compareTexts: { enabled: true, dailyLimit: 10 },
+    predictCaseOutcome: { enabled: true, dailyLimit: 5 },
+    inheritanceEstimate: { enabled: true, dailyLimit: 10 },
+  },
+  enterprise: {
+    translate: { enabled: true, dailyLimit: null },
+    compareTexts: { enabled: true, dailyLimit: null },
+    predictCaseOutcome: { enabled: true, dailyLimit: null },
+    inheritanceEstimate: { enabled: true, dailyLimit: null },
+  },
+};
+
+async function getOrganizationPlanForUser(ctx: any): Promise<{ organizationId: number; plan: SubscriptionPlan; seatLimit: number }> {
+  const organizationId = await db.ensureUserHasOrganization({
+    openId: ctx.user.openId,
+    defaultOrganizationName: ctx.user.name ?? null,
+  });
+
+  const org = await db.getOrganizationById(organizationId);
+  const plan = (org?.subscriptionPlan ?? "individual") as SubscriptionPlan;
+  const seatLimit = Number(org?.seatLimit ?? 1);
+
+  return { organizationId, plan, seatLimit };
+}
+
+function planLabel(plan: SubscriptionPlan) {
+  if (plan === "enterprise") return "منشأة";
+  if (plan === "law_firm") return "مكتب محاماة";
+  return "فردي";
+}
+
+async function assertToolAccess(params: {
+  ctx: any;
+  tool: ToolKey;
+}) {
+  const { ctx, tool } = params;
+
+  if (ctx.user && ctx.user.isActive === false) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message:
+        "يتطلب استخدام الأدوات الذكية اشتراكاً شهرياً فعالاً. يرجى الانتقال إلى صفحة المدفوعات لتجديد الاشتراك.",
+    });
+  }
+
+  const { organizationId, plan } = await getOrganizationPlanForUser(ctx);
+  const entitlements = toolEntitlementsByPlan[plan]?.[tool];
+
+  if (!entitlements?.enabled) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: `هذه الأداة غير متاحة في باقة ${planLabel(plan)}. يرجى ترقية الخطة لاستخدامها.`,
+    });
+  }
+
+  if (entitlements.dailyLimit !== null) {
+    const used = await db.getToolUsageCount({ organizationId, tool });
+    if (used >= entitlements.dailyLimit) {
+      throw new TRPCError({
+        code: "TOO_MANY_REQUESTS",
+        message: `لقد وصلت إلى الحد اليومي لاستخدام هذه الأداة (${entitlements.dailyLimit}). حاول لاحقاً أو قم بترقية الخطة.`,
+      });
+    }
+  }
+
+  return { organizationId, plan, entitlements };
+}
 
 // Saudi Law AI System Prompt
-const SAUDI_LAW_SYSTEM_PROMPT = `أنت "قيد" - المساعد القانوني الذكي المتخصص في القانون السعودي. أنت خبير قانوني متمرس في:
+const SAUDI_LAW_SYSTEM_PROMPT = `أنت "موازين" - المساعد القانوني الذكي المتخصص في القانون السعودي. دورك تقديم مساعدة قانونية عامة مبنية على الأنظمة واللوائح السعودية.
 
-1. **الأنظمة السعودية الأساسية:**
-   - النظام الأساسي للحكم
-   - نظام المرافعات الشرعية
-   - نظام الإجراءات الجزائية
-   - نظام المحاكم التجارية
-   - نظام العمل والعمال
-   - نظام الأحوال الشخصية
-   - نظام التنفيذ
-   - نظام الإفلاس
-   - نظام الشركات
+1. **المصادر الرسمية المعتمدة (أساس الذكاء الاصطناعي):**
+   1) **هيئة الخبراء بمجلس الوزراء (الأهم):**
+      - بوابة الأنظمة واللوائح
+      - الصياغات النظامية المعتمدة
+      - التعديلات الرسمية
+   2) **بوابة (مُعين):**
+      - شرح الأنظمة
+      - تبسيط المواد
+      - الربط بين النظام واللائحة
+      - تُستخدم كمصدر مهم جدًا للشرح/التفسير الإجرائي (مع عدم تقديم الخلافات الاجتهادية كحقائق قطعية)
+   3) **وزارة العدل:**
+      - الأنظمة القضائية
+      - الأدلة الإجرائية
+      - نماذج الدعاوى
+      - منصة ناجز وإجراءاتها
+   4) **ديوان المظالم:**
+      - القضاء الإداري
+      - المبادئ القضائية
+      - الأحكام الإدارية المنشورة
+   5) **النيابة العامة:**
+      - الأنظمة الجزائية
+      - أدلة التحقيق والادعاء
+   6) **مجلس الشورى:**
+      - مشروعات الأنظمة
+      - المداولات النظامية (مهمة للفهم التشريعي)
+   7) **الجهات التنظيمية المتخصصة (عند الاختصاص):**
+      - هيئة السوق المالية
+      - البنك المركزي السعودي
+      - هيئة الزكاة والضريبة والجمارك
+      - هيئة كفاءة الإنفاق
+      - هيئة الرقابة ومكافحة الفساد
 
-2. **المحاكم السعودية:**
+2. **تصنيفات الأنظمة التي تُغطّى عند الاستفسار (حسب الحاجة):**
+   - **الأنظمة الدستورية والحاكمة:**
+     - النظام الأساسي للحكم
+     - نظام مجلس الوزراء
+     - نظام مجلس الشورى
+     - نظام المناطق
+     - نظام البيعة
+   - **الأنظمة القضائية:**
+     - نظام القضاء
+     - نظام ديوان المظالم
+     - نظام المرافعات الشرعية
+     - نظام الإجراءات الجزائية
+     - نظام التنفيذ
+     - نظام المحاماة
+     - نظام التوثيق
+   - **الأنظمة العمالية والاجتماعية:**
+     - نظام العمل السعودي
+     - لائحة نظام العمل
+     - نظام التأمينات الاجتماعية
+     - نظام مكافحة التستر
+     - نظام الموارد البشرية في الخدمة المدنية
+     - نظام الخدمة العسكرية
+     - نظام التدريب التقني والمهني
+   - **الأنظمة التجارية والاقتصادية:**
+     - نظام الشركات
+     - نظام الإفلاس
+     - نظام التجارة الإلكترونية
+     - نظام السجل التجاري
+     - نظام العلامات التجارية
+     - نظام الأسماء التجارية
+     - نظام المنافسة
+     - نظام الامتياز التجاري
+     - نظام الغرف التجارية
+     - نظام الوكالات التجارية
+   - **الأنظمة المالية والضريبية:**
+     - نظام الزكاة
+     - نظام ضريبة القيمة المضافة
+     - نظام ضريبة الدخل
+     - نظام الجمارك الموحد
+     - نظام الإيرادات العامة
+     - نظام الدين العام
+     - نظام المنافسات والمشتريات الحكومية
+   - **الأنظمة الجزائية (الجنائية):**
+     - نظام مكافحة الرشوة
+     - نظام مكافحة غسل الأموال
+     - نظام مكافحة الإرهاب وتمويله
+     - نظام الجرائم المعلوماتية
+     - نظام مكافحة التزوير
+     - نظام مكافحة المخدرات
+     - نظام الأسلحة
+     - نظام حماية الأموال العامة
+   - **الأنظمة الإدارية والرقابية:**
+     - نظام الرقابة ومكافحة الفساد
+     - نظام تأديب الموظفين
+     - نظام حماية المبلغين
+     - نظام نزاهة
+     - نظام حوكمة الجهات الحكومية
+   - **الأنظمة المدنية والأحوال الشخصية:**
+     - نظام الأحوال الشخصية
+     - نظام المعاملات المدنية
+     - نظام الإثبات
+     - نظام التركات
+     - نظام الوصايا
+     - نظام الأوقاف
+   - **أنظمة التقنية والبيانات:**
+     - نظام حماية البيانات الشخصية
+     - نظام التعاملات الإلكترونية
+     - نظام الأمن السيبراني
+     - نظام الحكومة الرقمية
+   - **أنظمة العقار والبلديات:**
+     - نظام التسجيل العيني للعقار
+     - نظام نزع الملكية
+     - نظام الوساطة العقارية
+     - نظام المساهمات العقارية
+     - نظام البلديات
+     - نظام التخطيط العمراني
+   - **اللوائح التنفيذية والتعاميم والأدلة والقرارات التفسيرية:**
+     - اللوائح التنفيذية
+     - التعاميم الوزارية
+     - الأدلة الإجرائية
+     - القرارات التفسيرية
+
+3. **المحاكم والدوائر القضائية (عند السؤال عن الاختصاص/المسار):**
    - المحكمة العليا
    - محاكم الاستئناف
    - المحاكم الجزائية
@@ -30,22 +216,28 @@ const SAUDI_LAW_SYSTEM_PROMPT = `أنت "قيد" - المساعد القانون
    - المحاكم التجارية
    - محاكم الأحوال الشخصية
    - المحاكم العمالية
+   - دوائر ديوان المظالم
 
-3. **مهاراتك:**
-   - تحليل القضايا وتحديد نقاط القوة والضعف
-   - اكتشاف الثغرات القانونية في الدعاوى
-   - اقتراح استراتيجيات الدفاع المناسبة
-   - صياغة المذكرات القانونية
-   - البحث في السوابق القضائية
-   - تفسير الأنظمة واللوائح
+4. **مهاراتك:**
+   - تحليل الوقائع وتحديد المسائل القانونية
+   - اقتراح مسارات إجرائية محتملة وخيارات عامة
+   - صياغة مذكرات/لوائح/عقود/وكالات بصياغة احترافية عند الطلب
+   - إبراز المخاطر والمتطلبات النظامية
 
-**تعليمات مهمة:**
-- قدم إجابات دقيقة ومفصلة باللغة العربية
-- استشهد بالمواد القانونية ذات الصلة عند الإمكان
-- حدد المخاطر القانونية المحتملة
-- اقترح الإجراءات القانونية المناسبة
-- كن موضوعياً ومهنياً في تحليلك
-- نبه المستخدم عندما تحتاج القضية لاستشارة متخصصة إضافية`;
+**قواعد إلزامية للإجابة (مصادر/استشهاد/تمييز):**
+- لا تختلق مواد أو أرقام أو نصوص نظامية. إذا لم تتأكد من النص أو الرقم أو آخر تعديل فقل صراحةً إنك غير متأكد واقترح الرجوع للمصدر الرسمي.
+- اربط أي جواب قانوني — قدر الإمكان — بـ: (اسم النظام) و(رقم المادة/الفقرة) و(آخر تعديل إن كان معروفًا). إذا تعذر تحديد مادة بعينها، اذكر ذلك بوضوح.
+- فرّق بوضوح بين: (نظام) و(لائحة تنفيذية) و(تعميم) و(دليل إجرائي) و(قرار تفسيري)، ولا تخلط بينها.
+- عند نقل **نص نظامي**: اعتمد هيئة الخبراء للصياغة المعتمدة. وعند تقديم **شرح/تبسيط**: اعتمد مُعين للشرح والربط بين النظام واللائحة.
+- عندما تكون المعلومات ناقصة، اطرح أسئلة توضيحية محددة قبل إعطاء نتيجة نهائية.
+- اجعل الإجابة باللغة العربية وبأسلوب مهني واضح ومنظم.
+- فرّق بين: (معلومة نظامية) و(إجراء على منصة/جهة) و(رأي عام/خيار محتمل).
+
+**تنبيه مهني مهم:**
+- لا تُسمّى محاميًا.
+- لا تصدر أحكامًا.
+- لا تقدّم الخلافات الاجتهادية كحقائق مطلقة.
+- لا تقدّم استشارة ملزمة، ونبّه المستخدم عند الحاجة إلى مراجعة محامٍ/مختص بحسب تفاصيل الحالة.`;
 
 export const appRouter = router({
   system: systemRouter,
@@ -59,22 +251,685 @@ export const appRouter = router({
     }),
   }),
 
+  services: router({
+    publicList: publicProcedure.query(async () => {
+      const organizationId = await db.getDefaultPublicOrganizationId();
+      return db.getServiceCatalogByOrganizationId(organizationId, true);
+    }),
+
+    adminList: protectedProcedure.query(async ({ ctx }) => {
+      const organizationId = await db.ensureUserHasOrganization({
+        openId: ctx.user.openId,
+        defaultOrganizationName: ctx.user.name ?? null,
+      });
+      return db.getServiceCatalogByOrganizationId(organizationId, false);
+    }),
+
+    adminCreate: protectedProcedure
+      .input(
+        z.object({
+          title: z.string().min(1),
+          description: z.string().optional().nullable(),
+          durationMinutes: z.number().int().min(5).max(24 * 60).default(60),
+          priceAmount: z.number().int().min(0).default(0),
+          currency: z.string().min(1).max(10).default("SAR"),
+          isActive: z.boolean().default(true),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const organizationId = await db.ensureUserHasOrganization({
+          openId: ctx.user.openId,
+          defaultOrganizationName: ctx.user.name ?? null,
+        });
+
+        const id = await db.createServiceCatalogItem({
+          organizationId,
+          title: input.title,
+          description: input.description ?? null,
+          durationMinutes: input.durationMinutes,
+          priceAmount: input.priceAmount,
+          currency: input.currency,
+          isActive: input.isActive,
+        });
+
+        return { id } as const;
+      }),
+
+    adminUpdate: protectedProcedure
+      .input(
+        z.object({
+          id: z.number(),
+          title: z.string().min(1).optional(),
+          description: z.string().optional().nullable(),
+          durationMinutes: z.number().int().min(5).max(24 * 60).optional(),
+          priceAmount: z.number().int().min(0).optional(),
+          currency: z.string().min(1).max(10).optional(),
+          isActive: z.boolean().optional(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        await db.updateServiceCatalogItem(id, data as any);
+        return { success: true as const };
+      }),
+  }),
+
+  serviceRequests: router({
+    createPublic: publicProcedure
+      .input(
+        z.object({
+          serviceId: z.number().optional().nullable(),
+          clientName: z.string().min(1),
+          clientEmail: z.string().email().optional().nullable(),
+          clientPhone: z.string().optional().nullable(),
+          notes: z.string().optional().nullable(),
+          preferredAt: z.coerce.date().optional().nullable(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const organizationId = await db.getDefaultPublicOrganizationId();
+
+        const id = await db.createServiceRequest({
+          organizationId,
+          serviceId: input.serviceId ?? null,
+          clientName: input.clientName,
+          clientEmail: input.clientEmail ?? null,
+          clientPhone: input.clientPhone ?? null,
+          notes: input.notes ?? null,
+          preferredAt: input.preferredAt ?? null,
+          status: "new",
+          assignedToUserId: null,
+        });
+
+        return { id } as const;
+      }),
+
+    list: protectedProcedure
+      .input(
+        z
+          .object({
+            status: z.enum(["new", "in_progress", "completed", "cancelled"]).optional(),
+          })
+          .optional()
+      )
+      .query(async ({ ctx, input }) => {
+        const organizationId = await db.ensureUserHasOrganization({
+          openId: ctx.user.openId,
+          defaultOrganizationName: ctx.user.name ?? null,
+        });
+        return db.getServiceRequestsByOrganizationId(organizationId, input?.status);
+      }),
+
+    update: protectedProcedure
+      .input(
+        z.object({
+          id: z.number(),
+          status: z.enum(["new", "in_progress", "completed", "cancelled"]).optional(),
+          assignedToUserId: z.number().optional().nullable(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        await db.updateServiceRequest(id, {
+          status: data.status,
+          assignedToUserId: data.assignedToUserId ?? undefined,
+        } as any);
+        return { success: true as const };
+      }),
+  }),
+
+  publicSite: router({
+    page: publicProcedure
+      .input(z.object({ slug: z.string().min(1).max(100) }))
+      .query(async ({ input }) => {
+        const organizationId = await db.getDefaultPublicOrganizationId();
+        const page = await db.getSitePageBySlug({
+          organizationId,
+          slug: input.slug,
+          onlyPublished: true,
+        });
+        return page ?? null;
+      }),
+
+    team: publicProcedure.query(async () => {
+      const organizationId = await db.getDefaultPublicOrganizationId();
+      return db.listPublicTeamMembers(organizationId, true);
+    }),
+
+    practices: publicProcedure.query(async () => {
+      const organizationId = await db.getDefaultPublicOrganizationId();
+      return db.listPracticeAreas(organizationId, true);
+    }),
+
+    testimonials: publicProcedure.query(async () => {
+      const organizationId = await db.getDefaultPublicOrganizationId();
+      return db.listTestimonials(organizationId, true);
+    }),
+  }),
+
+  contact: router({
+    createPublic: publicProcedure
+      .input(
+        z.object({
+          name: z.string().min(1),
+          email: z.string().email().optional().nullable(),
+          phone: z.string().optional().nullable(),
+          message: z.string().min(1),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const organizationId = await db.getDefaultPublicOrganizationId();
+        const id = await db.createContactMessage({
+          organizationId,
+          name: input.name,
+          email: input.email ?? null,
+          phone: input.phone ?? null,
+          message: input.message,
+          status: "new",
+        });
+        return { id } as const;
+      }),
+  }),
+
+  legalTools: router({
+    translate: protectedProcedure
+      .input(
+        z.object({
+          text: z.string().min(1),
+          targetLanguage: z.enum(["ar", "en"]).default("ar"),
+          tone: z.enum(["formal", "simple"]).default("formal"),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const { organizationId } = await assertToolAccess({ ctx, tool: "translate" });
+
+        const system = `أنت مساعد متخصص في الترجمة القانونية.\n\n- التزم بالدقة، وحافظ على المصطلحات القانونية.\n- إذا كان النص يتضمن مصطلحات قد تحمل أكثر من معنى، اذكر البدائل بين قوسين بشكل موجز.\n- لا تقدّم استشارة قانونية ملزمة.`;
+
+        const user = `ترجم النص التالي إلى ${input.targetLanguage === "ar" ? "العربية" : "الإنجليزية"} بأسلوب ${
+          input.tone === "formal" ? "رسمي" : "مبسّط"
+        }: \n\n${input.text}`;
+
+        try {
+          const response = await invokeLLM({
+            messages: [
+              { role: "system", content: system },
+              { role: "user", content: user },
+            ],
+            outputSchema: {
+              name: "LegalTranslation",
+              schema: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  translation: { type: "string" },
+                },
+                required: ["translation"],
+              },
+            },
+          });
+
+          const raw = response.choices[0]?.message?.content;
+          const translation =
+            typeof raw === "string"
+              ? raw
+              : Array.isArray(raw) && raw[0] && "text" in (raw[0] as any)
+                ? ((raw[0] as any).text as string)
+                : "";
+
+          await db.incrementToolUsage({ organizationId, tool: "translate" });
+          return { translation } as const;
+        } catch (error) {
+          const response = await invokeLLM({
+            messages: [
+              { role: "system", content: system },
+              { role: "user", content: user },
+            ],
+          });
+          const raw = response.choices[0]?.message?.content;
+          const translation = typeof raw === "string" ? raw : "";
+          await db.incrementToolUsage({ organizationId, tool: "translate" });
+          return { translation } as const;
+        }
+      }),
+
+    compareTexts: protectedProcedure
+      .input(
+        z.object({
+          leftTitle: z.string().optional().nullable(),
+          rightTitle: z.string().optional().nullable(),
+          leftText: z.string().min(1),
+          rightText: z.string().min(1),
+          focus: z.enum(["general", "risks", "differences", "compliance"]).default("general"),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const { organizationId } = await assertToolAccess({ ctx, tool: "compareTexts" });
+
+        const system = `أنت محلل قانوني.\n\nمهمتك مقارنة نصين/وثيقتين واستخراج الفروقات الجوهرية والمخاطر.\n- اكتب المخرجات بالعربية.\n- لا تقدّم استشارة ملزمة.`;
+
+        const user = `قارن بين النصين التاليين. ركّز على: ${input.focus}.\n\n` +
+          `النص (A)${input.leftTitle ? ` - ${input.leftTitle}` : ""}:\n${input.leftText}\n\n` +
+          `النص (B)${input.rightTitle ? ` - ${input.rightTitle}` : ""}:\n${input.rightText}`;
+
+        const response = await invokeLLM({ messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ] });
+        const raw = response.choices[0]?.message?.content;
+        await db.incrementToolUsage({ organizationId, tool: "compareTexts" });
+        return { analysis: typeof raw === "string" ? raw : "" } as const;
+      }),
+
+    predictCaseOutcome: protectedProcedure
+      .input(
+        z.object({
+          caseId: z.number().optional().nullable(),
+          caseSummary: z.string().min(1),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const { organizationId } = await assertToolAccess({ ctx, tool: "predictCaseOutcome" });
+
+        let caseContext = "";
+        if (input.caseId) {
+          const caseData = await db.getCaseById(input.caseId);
+          if (caseData) {
+            caseContext = `\n\nبيانات القضية بالنظام:\n- رقم القضية: ${caseData.caseNumber}\n- العنوان: ${caseData.title}\n- النوع: ${caseData.type}\n- المحكمة: ${caseData.court || "غير محدد"}\n- المرحلة: ${caseData.stage}\n- الحالة: ${caseData.status}`;
+          }
+        }
+
+        const system = `${SAUDI_LAW_SYSTEM_PROMPT}\n\nمهمة إضافية: قدّم توقعات عامة غير ملزمة لسيناريوهات سير القضية.\n- قدّم 3 سيناريوهات على الأقل (متفائل/واقعي/متشائم).\n- اذكر العوامل التي قد تغيّر النتيجة.\n- لا تُصدر حكمًا ولا تعتبره توقعًا حتميًا.`;
+
+        const user = `حلّل ملخص القضية التالي وقدّم 3 سيناريوهات متوقعة لسيرها ونتيجتها بشكل عام (بدون جزم):\n\n${input.caseSummary}${caseContext}`;
+
+        const response = await invokeLLM({
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: user },
+          ],
+        });
+
+        const raw = response.choices[0]?.message?.content;
+        await db.incrementToolUsage({ organizationId, tool: "predictCaseOutcome" });
+        return { analysis: typeof raw === "string" ? raw : "" } as const;
+      }),
+
+    inheritanceEstimate: protectedProcedure
+      .input(
+        z.object({
+          scenario: z.string().min(1),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const { organizationId } = await assertToolAccess({ ctx, tool: "inheritanceEstimate" });
+
+        const system = `أنت مساعد في شرح المواريث وفق الأنظمة السعودية (أحكام المواريث الشرعية) بشكل تعليمي عام.\n\n- قدّم نتيجة تقديرية فقط وقد تتغير حسب تفاصيل دقيقة.\n- اطلب معلومات ناقصة إذا لزم.\n- اذكر تنبيهًا واضحًا بضرورة مراجعة مختص.\n- اكتب بالعربية.`;
+
+        const user = `هذه حالة تركة/مواريث.\n\n${input.scenario}\n\nالمطلوب:\n1) تلخيص المعطيات.\n2) تحديد الورثة المحتملين حسب المذكور.\n3) توزيع تقديري (نِسَب) إن أمكن.\n4) أسئلة توضيحية إن كانت المعطيات ناقصة.\n5) تنبيه مهني بعدم الاعتماد على الناتج دون مختص.`;
+
+        const response = await invokeLLM({ messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ] });
+        const raw = response.choices[0]?.message?.content;
+        await db.incrementToolUsage({ organizationId, tool: "inheritanceEstimate" });
+        return { analysis: typeof raw === "string" ? raw : "" } as const;
+      }),
+  }),
+
+  cms: router({
+    pagesList: protectedProcedure.query(async ({ ctx }) => {
+      const organizationId = await db.ensureUserHasOrganization({
+        openId: ctx.user.openId,
+        defaultOrganizationName: ctx.user.name ?? null,
+      });
+      return db.listSitePagesByOrganizationId(organizationId);
+    }),
+
+    pageUpsert: protectedProcedure
+      .input(
+        z.object({
+          slug: z.string().min(1).max(100),
+          title: z.string().min(1).max(255),
+          content: z.string().optional().nullable(),
+          isPublished: z.boolean().default(true),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const organizationId = await db.ensureUserHasOrganization({
+          openId: ctx.user.openId,
+          defaultOrganizationName: ctx.user.name ?? null,
+        });
+        const id = await db.upsertSitePage({
+          organizationId,
+          slug: input.slug,
+          title: input.title,
+          content: input.content ?? null,
+          isPublished: input.isPublished,
+          updatedByUserId: ctx.user.id,
+        });
+        return { id } as const;
+      }),
+
+    teamList: protectedProcedure.query(async ({ ctx }) => {
+      const organizationId = await db.ensureUserHasOrganization({
+        openId: ctx.user.openId,
+        defaultOrganizationName: ctx.user.name ?? null,
+      });
+      return db.listPublicTeamMembers(organizationId, false);
+    }),
+
+    teamCreate: protectedProcedure
+      .input(
+        z.object({
+          name: z.string().min(1),
+          title: z.string().optional().nullable(),
+          bio: z.string().optional().nullable(),
+          avatarUrl: z.string().optional().nullable(),
+          sortOrder: z.number().int().min(0).default(0),
+          isActive: z.boolean().default(true),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const organizationId = await db.ensureUserHasOrganization({
+          openId: ctx.user.openId,
+          defaultOrganizationName: ctx.user.name ?? null,
+        });
+        const id = await db.createPublicTeamMember({
+          organizationId,
+          name: input.name,
+          title: input.title ?? null,
+          bio: input.bio ?? null,
+          avatarUrl: input.avatarUrl ?? null,
+          sortOrder: input.sortOrder,
+          isActive: input.isActive,
+        });
+        return { id } as const;
+      }),
+
+    teamUpdate: protectedProcedure
+      .input(
+        z.object({
+          id: z.number(),
+          name: z.string().min(1).optional(),
+          title: z.string().optional().nullable(),
+          bio: z.string().optional().nullable(),
+          avatarUrl: z.string().optional().nullable(),
+          sortOrder: z.number().int().min(0).optional(),
+          isActive: z.boolean().optional(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        await db.updatePublicTeamMember(id, data as any);
+        return { success: true as const };
+      }),
+
+    practicesList: protectedProcedure.query(async ({ ctx }) => {
+      const organizationId = await db.ensureUserHasOrganization({
+        openId: ctx.user.openId,
+        defaultOrganizationName: ctx.user.name ?? null,
+      });
+      return db.listPracticeAreas(organizationId, false);
+    }),
+
+    practicesCreate: protectedProcedure
+      .input(
+        z.object({
+          title: z.string().min(1),
+          description: z.string().optional().nullable(),
+          sortOrder: z.number().int().min(0).default(0),
+          isActive: z.boolean().default(true),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const organizationId = await db.ensureUserHasOrganization({
+          openId: ctx.user.openId,
+          defaultOrganizationName: ctx.user.name ?? null,
+        });
+        const id = await db.createPracticeArea({
+          organizationId,
+          title: input.title,
+          description: input.description ?? null,
+          sortOrder: input.sortOrder,
+          isActive: input.isActive,
+        });
+        return { id } as const;
+      }),
+
+    practicesUpdate: protectedProcedure
+      .input(
+        z.object({
+          id: z.number(),
+          title: z.string().min(1).optional(),
+          description: z.string().optional().nullable(),
+          sortOrder: z.number().int().min(0).optional(),
+          isActive: z.boolean().optional(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        await db.updatePracticeArea(id, data as any);
+        return { success: true as const };
+      }),
+
+    testimonialsList: protectedProcedure.query(async ({ ctx }) => {
+      const organizationId = await db.ensureUserHasOrganization({
+        openId: ctx.user.openId,
+        defaultOrganizationName: ctx.user.name ?? null,
+      });
+      return db.listTestimonials(organizationId, false);
+    }),
+
+    testimonialsCreate: protectedProcedure
+      .input(
+        z.object({
+          clientName: z.string().min(1),
+          clientTitle: z.string().optional().nullable(),
+          content: z.string().min(1),
+          rating: z.number().int().min(1).max(5).default(5),
+          isPublished: z.boolean().default(true),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const organizationId = await db.ensureUserHasOrganization({
+          openId: ctx.user.openId,
+          defaultOrganizationName: ctx.user.name ?? null,
+        });
+        const id = await db.createTestimonial({
+          organizationId,
+          clientName: input.clientName,
+          clientTitle: input.clientTitle ?? null,
+          content: input.content,
+          rating: input.rating,
+          isPublished: input.isPublished,
+        });
+        return { id } as const;
+      }),
+
+    testimonialsUpdate: protectedProcedure
+      .input(
+        z.object({
+          id: z.number(),
+          clientName: z.string().min(1).optional(),
+          clientTitle: z.string().optional().nullable(),
+          content: z.string().min(1).optional(),
+          rating: z.number().int().min(1).max(5).optional(),
+          isPublished: z.boolean().optional(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        await db.updateTestimonial(id, data as any);
+        return { success: true as const };
+      }),
+
+    contactMessagesList: protectedProcedure
+      .input(z.object({ status: z.enum(["new", "replied", "closed"]).optional() }).optional())
+      .query(async ({ ctx, input }) => {
+        const organizationId = await db.ensureUserHasOrganization({
+          openId: ctx.user.openId,
+          defaultOrganizationName: ctx.user.name ?? null,
+        });
+        return db.listContactMessagesByOrganizationId(organizationId, input?.status);
+      }),
+
+    contactMessagesUpdateStatus: protectedProcedure
+      .input(z.object({ id: z.number(), status: z.enum(["new", "replied", "closed"]) }))
+      .mutation(async ({ input }) => {
+        await db.updateContactMessageStatus(input.id, input.status);
+        return { success: true as const };
+      }),
+  }),
+
+  blog: router({
+    publicList: publicProcedure.query(async () => {
+      const organizationId = await db.getDefaultPublicOrganizationId();
+      return db.listBlogPostsByOrganizationId(organizationId, true);
+    }),
+
+    publicGetBySlug: publicProcedure
+      .input(z.object({ slug: z.string().min(1).max(150) }))
+      .query(async ({ input }) => {
+        const organizationId = await db.getDefaultPublicOrganizationId();
+        const post = await db.getBlogPostBySlug({ organizationId, slug: input.slug, onlyPublished: true });
+        return post ?? null;
+      }),
+
+    adminList: protectedProcedure.query(async ({ ctx }) => {
+      const organizationId = await db.ensureUserHasOrganization({
+        openId: ctx.user.openId,
+        defaultOrganizationName: ctx.user.name ?? null,
+      });
+      return db.listBlogPostsByOrganizationId(organizationId, false);
+    }),
+
+    adminUpsert: protectedProcedure
+      .input(
+        z.object({
+          slug: z.string().min(1).max(150),
+          title: z.string().min(1).max(255),
+          excerpt: z.string().optional().nullable(),
+          content: z.string().optional().nullable(),
+          isPublished: z.boolean().default(true),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const organizationId = await db.ensureUserHasOrganization({
+          openId: ctx.user.openId,
+          defaultOrganizationName: ctx.user.name ?? null,
+        });
+
+        const id = await db.upsertBlogPost({
+          organizationId,
+          slug: input.slug,
+          title: input.title,
+          excerpt: input.excerpt ?? null,
+          content: input.content ?? null,
+          isPublished: input.isPublished,
+          updatedByUserId: ctx.user.id,
+        });
+
+        return { id } as const;
+      }),
+  }),
+
   // ==================== SUBSCRIPTIONS ====================
   subscriptions: router({
     me: protectedProcedure.query(async ({ ctx }) => {
+      const { organizationId, plan, seatLimit } = await getOrganizationPlanForUser(ctx);
+      const tools = toolEntitlementsByPlan[plan];
+      const used = {
+        translate: await db.getToolUsageCount({ organizationId, tool: "translate" }),
+        compareTexts: await db.getToolUsageCount({ organizationId, tool: "compareTexts" }),
+        predictCaseOutcome: await db.getToolUsageCount({ organizationId, tool: "predictCaseOutcome" }),
+        inheritanceEstimate: await db.getToolUsageCount({ organizationId, tool: "inheritanceEstimate" }),
+      };
+
       return {
         isActive: ctx.user.isActive,
+        organization: {
+          id: organizationId,
+          plan,
+          seatLimit,
+        },
+        toolEntitlements: {
+          translate: {
+            ...tools.translate,
+            usedToday: used.translate,
+            remaining: tools.translate.dailyLimit === null ? null : Math.max(tools.translate.dailyLimit - used.translate, 0),
+          },
+          compareTexts: {
+            ...tools.compareTexts,
+            usedToday: used.compareTexts,
+            remaining: tools.compareTexts.dailyLimit === null ? null : Math.max(tools.compareTexts.dailyLimit - used.compareTexts, 0),
+          },
+          predictCaseOutcome: {
+            ...tools.predictCaseOutcome,
+            usedToday: used.predictCaseOutcome,
+            remaining:
+              tools.predictCaseOutcome.dailyLimit === null
+                ? null
+                : Math.max(tools.predictCaseOutcome.dailyLimit - used.predictCaseOutcome, 0),
+          },
+          inheritanceEstimate: {
+            ...tools.inheritanceEstimate,
+            usedToday: used.inheritanceEstimate,
+            remaining:
+              tools.inheritanceEstimate.dailyLimit === null
+                ? null
+                : Math.max(tools.inheritanceEstimate.dailyLimit - used.inheritanceEstimate, 0),
+          },
+        },
       } as const;
     }),
 
     activate: protectedProcedure
-      .input(z.object({ plan: z.enum(["monthly"]).default("monthly") }).optional())
-      .mutation(async ({ ctx }) => {
+      .input(
+        z
+          .object({
+            plan: z
+              .enum(["individual", "law_firm", "enterprise", "monthly"])
+              .default("individual"),
+          })
+          .optional()
+      )
+      .mutation(async ({ ctx, input }) => {
+        if (ENV.isProduction && ctx.user.role !== "admin") {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message:
+              "لا يمكن تفعيل الاشتراك تلقائياً في بيئة الإنتاج. يرجى إتمام عملية الدفع عبر القنوات المعتمدة أو التواصل مع الإدارة لتفعيل الاشتراك.",
+          });
+        }
+
+        const requestedPlan = input?.plan ?? "individual";
+        const normalizedPlan = requestedPlan === "monthly" ? "individual" : requestedPlan;
+        const seatLimit =
+          normalizedPlan === "law_firm" ? 5 : normalizedPlan === "enterprise" ? 15 : 1;
+
+        const organizationId = await db.ensureUserHasOrganization({
+          openId: ctx.user.openId,
+          defaultOrganizationName: ctx.user.name ?? null,
+        });
+
+        await db.setOrganizationSubscriptionPlan({
+          organizationId,
+          subscriptionPlan: normalizedPlan,
+          seatLimit,
+        });
+
         await db.setUserActive(ctx.user.id, true);
+        await db.setUserSubscriptionPlan({
+          userId: ctx.user.id,
+          subscriptionPlan: normalizedPlan,
+          accountType: normalizedPlan,
+          seatLimit,
+        });
 
         return {
           success: true as const,
-          plan: "monthly" as const,
+          plan: normalizedPlan as const,
         };
       }),
   }),
@@ -717,6 +1572,24 @@ export const appRouter = router({
             content: msg.content,
           });
         }
+
+        try {
+          const snippets = await retrieveLegalSnippets({ query: input.message, topK: 6, scanLimit: 600 });
+          if (snippets.length > 0) {
+            messages.push({
+              role: "system",
+              content: formatSnippetsForPrompt(snippets),
+            });
+          }
+        } catch (e) {
+          console.warn("[AI] Retrieval failed", e);
+        }
+
+        messages.push({
+          role: "system",
+          content:
+            "تعليمات إلزامية: عند ذكر نص نظامي أو مادة أو حكم أو لائحة، يجب أن تستند إلى المقتطفات أعلاه وتذكر الروابط في قسم بعنوان (المصادر) في نهاية الإجابة. إذا لم تتوفر مقتطفات كافية فلا تذكر أرقام مواد أو تنسب نصوصاً، واطلب معلومات إضافية أو صرّح بعدم توفر مصدر حالياً.",
+        });
         
         // Add current message
         messages.push({ role: "user", content: input.message });
@@ -862,6 +1735,36 @@ export const appRouter = router({
       }),
   }),
 
+  legalKnowledge: router({
+    runCrawl: adminProcedure
+      .input(
+        z
+          .object({
+            seedSitemaps: z.array(z.string().url()).optional(),
+            force: z.boolean().optional(),
+          })
+          .optional()
+      )
+      .mutation(async ({ input }) => {
+        const result = await runLegalCrawlerOnce({
+          seedSitemaps: input?.seedSitemaps,
+          force: input?.force ?? true,
+        });
+        return result as any;
+      }),
+
+    search: adminProcedure
+      .input(
+        z.object({
+          query: z.string().min(1),
+          topK: z.number().int().min(1).max(10).default(5),
+        })
+      )
+      .query(async ({ input }) => {
+        return retrieveLegalSnippets({ query: input.query, topK: input.topK, scanLimit: 1000 });
+      }),
+  }),
+
   // ==================== NOTIFICATIONS ====================
   notifications: router({
     list: protectedProcedure
@@ -885,12 +1788,72 @@ export const appRouter = router({
 
   // ==================== USERS/TEAM ====================
   team: router({
-    list: protectedProcedure.query(async () => {
-      return db.getAllUsers();
+    list: protectedProcedure.query(async ({ ctx }) => {
+      const organizationId = await db.ensureUserHasOrganization({
+        openId: ctx.user.openId,
+        defaultOrganizationName: ctx.user.name ?? null,
+      });
+      return db.getUsersByOrganizationId(organizationId);
     }),
+
+    addMember: protectedProcedure
+      .input(
+        z.object({
+          name: z.string().min(1),
+          email: z.string().email().optional().nullable(),
+          phone: z.string().optional().nullable(),
+          role: z.enum(["lawyer", "assistant", "client"]).default("lawyer"),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const organizationId = await db.ensureUserHasOrganization({
+          openId: ctx.user.openId,
+          defaultOrganizationName: ctx.user.name ?? null,
+        });
+
+        const org = await db.getOrganizationById(organizationId);
+        const orgPlan = (org?.subscriptionPlan ?? "individual") as
+          | "individual"
+          | "law_firm"
+          | "enterprise";
+        const seatLimit = org?.seatLimit ?? 1;
+        const memberCount = await db.getOrganizationMemberCount(organizationId);
+
+        if (memberCount >= seatLimit) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: `لا يمكن إضافة عضو جديد. لقد وصلت للحد الأقصى لمقاعد الباقة الحالية (${seatLimit}).`,
+          });
+        }
+
+        const normalizedEmail = (input.email ?? undefined)?.trim();
+        const openId = `org-${organizationId}-${nanoid(12)}`;
+
+        await db.upsertUser({
+          openId,
+          organizationId,
+          name: input.name,
+          email: normalizedEmail ?? null,
+          phone: input.phone ?? null,
+          loginMethod: "org",
+          role: input.role,
+          accountType: orgPlan,
+          subscriptionPlan: orgPlan,
+          seatLimit,
+          isActive: ctx.user.isActive,
+          lastSignedIn: new Date(),
+        });
+
+        return { success: true as const };
+      }),
     
-    lawyers: protectedProcedure.query(async () => {
-      return db.getLawyers();
+    lawyers: protectedProcedure.query(async ({ ctx }) => {
+      const organizationId = await db.ensureUserHasOrganization({
+        openId: ctx.user.openId,
+        defaultOrganizationName: ctx.user.name ?? null,
+      });
+      const members = await db.getUsersByOrganizationId(organizationId);
+      return members.filter((u) => u.role === "lawyer" || u.role === "admin");
     }),
   }),
 

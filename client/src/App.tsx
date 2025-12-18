@@ -23,6 +23,25 @@ import ClientPortal from "./pages/ClientPortal";
 import Notifications from "./pages/Notifications";
 import Payments from "./pages/Payments";
 import Reports from "./pages/Reports";
+import Tasks from "./pages/Tasks";
+import PublicServices from "./pages/PublicServices";
+import ServiceCatalogAdmin from "./pages/ServiceCatalogAdmin";
+import ServiceRequestsAdmin from "./pages/ServiceRequestsAdmin";
+import About from "./pages/About";
+import Pricing from "./pages/Pricing";
+import SiteTeam from "./pages/SiteTeam";
+import SitePractices from "./pages/SitePractices";
+import SiteTestimonials from "./pages/SiteTestimonials";
+import ContactUs from "./pages/ContactUs";
+import CmsPagesAdmin from "./pages/CmsPagesAdmin";
+import CmsTeamAdmin from "./pages/CmsTeamAdmin";
+import CmsPracticesAdmin from "./pages/CmsPracticesAdmin";
+import CmsTestimonialsAdmin from "./pages/CmsTestimonialsAdmin";
+import CmsContactMessagesAdmin from "./pages/CmsContactMessagesAdmin";
+import Blog from "./pages/Blog";
+import BlogPost from "./pages/BlogPost";
+import CmsBlogAdmin from "./pages/CmsBlogAdmin";
+import LegalTools from "./pages/LegalTools";
 
 function Router() {
   return (
@@ -30,6 +49,15 @@ function Router() {
       <Route path={"/"} component={Home} />
       <Route path={"/login"} component={Login} />
       <Route path={"/signup"} component={SignUp} />
+      <Route path={"/services"} component={PublicServices} />
+      <Route path={"/about"} component={About} />
+      <Route path={"/pricing"} component={Pricing} />
+      <Route path={"/our-team"} component={SiteTeam} />
+      <Route path={"/practices"} component={SitePractices} />
+      <Route path={"/testimonials"} component={SiteTestimonials} />
+      <Route path={"/contact"} component={ContactUs} />
+      <Route path={"/blog/:slug"} component={BlogPost} />
+      <Route path={"/blog"} component={Blog} />
       <Route path={"/dashboard"} component={Dashboard} />
       <Route path={"/cases/:id"} component={CaseDetails} />
       <Route path={"/cases"} component={Cases} />
@@ -39,6 +67,8 @@ function Router() {
       <Route path={"/documents"} component={Documents} />
       <Route path={"/invoices"} component={Invoices} />
       <Route path={"/calendar"} component={Calendar} />
+      <Route path={"/tasks"} component={Tasks} />
+      <Route path={"/legal-tools"} component={LegalTools} />
       <Route path={"/team"} component={Team} />
       <Route path={"/analytics"} component={Analytics} />
       <Route path={"/settings"} component={Settings} />
@@ -46,6 +76,14 @@ function Router() {
       <Route path={"/notifications"} component={Notifications} />
       <Route path={"/payments"} component={Payments} />
       <Route path={"/reports"} component={Reports} />
+      <Route path={"/service-catalog"} component={ServiceCatalogAdmin} />
+      <Route path={"/service-requests"} component={ServiceRequestsAdmin} />
+      <Route path={"/cms/pages"} component={CmsPagesAdmin} />
+      <Route path={"/cms/team"} component={CmsTeamAdmin} />
+      <Route path={"/cms/practices"} component={CmsPracticesAdmin} />
+      <Route path={"/cms/testimonials"} component={CmsTestimonialsAdmin} />
+      <Route path={"/cms/messages"} component={CmsContactMessagesAdmin} />
+      <Route path={"/cms/blog"} component={CmsBlogAdmin} />
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />
     </Switch>

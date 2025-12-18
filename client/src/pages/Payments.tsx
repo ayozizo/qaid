@@ -9,13 +9,22 @@ import {
   Smartphone,
   DollarSign,
   CheckCircle2,
-  AlertCircle,
   ArrowRight,
   Download,
 } from "lucide-react";
 import DashboardLayout from "@/components/DashboardLayout";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { trpc } from "@/lib/trpc";
+
+const getPlanFromUrl = (): SubscriptionPlanId | null => {
+  if (typeof window === "undefined") return null;
+  const urlParams = new URLSearchParams(window.location.search);
+  const plan = urlParams.get("plan");
+  if (plan === "individual" || plan === "law_firm" || plan === "enterprise") {
+    return plan;
+  }
+  return null;
+};
 
 const invoiceStatusLabel: Record<string, string> = {
   draft: "مسودة",
@@ -38,38 +47,43 @@ const invoiceStatusClass: Record<string, string> = {
 const subscriptionPlans = [
   {
     id: "individual" as const,
-    name: "اشتراك فردي",
-    price: 149,
+    name: "فردي",
+    price: 39,
     period: "شهرياً",
-    description: "مثالي للمحامي الفرد الذي يريد مساعدًا قانونيًا ذكيًا في كل قضية.",
+    description: "مناسب للمستخدم الفردي لإدارة القضايا والاستفادة من المساعد القانوني.",
     features: [
+      "عدد المستخدمين: 1",
       "مساعد قانوني ذكي متخصص في الأنظمة السعودية",
-      "تحليل غير محدود للقضايا والاستشارات",
-      "صياغة مذكرات ولوائح بطريقة احترافية",
+      "تحليل القضايا والاستشارات وصياغة المستندات حسب الاستخدام العادل",
+      "تفعيل الاشتراك في بيئة الإنتاج يتم عبر القنوات المعتمدة",
     ],
   },
   {
-    id: "office" as const,
-    name: "اشتراك مكتب محاماة",
-    price: 399,
+    id: "law_firm" as const,
+    name: "مكتب محاماة",
+    price: 39,
     period: "شهرياً",
-    description: "أنسب لاستخدام مكتب محاماة صغير أو متوسط بعدة ملفات نشطة.",
+    description: "مناسب للمكاتب الصغيرة والمتوسطة مع فريق عمل.",
     features: [
-      "دعم عدة مستخدمين داخل نفس المكتب (حسب سياسة الترخيص)",
-      "تحليل قضايا متعددة في آن واحد",
-      "تقارير وتوصيات استراتيجية للمكتب",
+      "عدد المستخدمين: 5",
+      "إدارة الفريق والصلاحيات داخل النظام",
+      "مساعد قانوني ذكي متخصص في الأنظمة السعودية",
+      "تحليل القضايا والاستشارات وصياغة المستندات حسب الاستخدام العادل",
+      "تفعيل الاشتراك في بيئة الإنتاج يتم عبر القنوات المعتمدة",
     ],
   },
   {
-    id: "team" as const,
-    name: "اشتراك فريق/منشأة قانونية",
-    price: 899,
+    id: "enterprise" as const,
+    name: "منشأة",
+    price: 39,
     period: "شهرياً",
-    description: "مخصص للمكاتب الكبيرة أو الفرق القانونية في الشركات والجهات الحكومية.",
+    description: "مناسب للمنشآت القانونية والإدارات ذات الحجم الأكبر.",
     features: [
-      "أفضلية في الموارد والوصول السريع للمساعد",
-      "إمكانية تخصيص أوسع للاستخدام داخل الفريق",
-      "ملائم لحجم عمل كبير وعدد مستخدمين أعلى",
+      "عدد المستخدمين: 15",
+      "إدارة الفريق والصلاحيات داخل النظام",
+      "مساعد قانوني ذكي متخصص في الأنظمة السعودية",
+      "تحليل القضايا والاستشارات وصياغة المستندات حسب الاستخدام العادل",
+      "تفعيل الاشتراك في بيئة الإنتاج يتم عبر القنوات المعتمدة",
     ],
   },
 ] as const;
@@ -79,7 +93,16 @@ type SubscriptionPlanId = (typeof subscriptionPlans)[number]["id"];
 export default function Payments() {
   const [selectedGateway, setSelectedGateway] = useState<"stripe" | "stc" | null>(null);
   const [paymentAmount, setPaymentAmount] = useState("");
-  const [selectedPlan, setSelectedPlan] = useState<SubscriptionPlanId | null>(null);
+  const [selectedPlan, setSelectedPlan] = useState<SubscriptionPlanId | null>(() => {
+    return getPlanFromUrl();
+  });
+
+  useEffect(() => {
+    if (!selectedPlan) return;
+    const selected = subscriptionPlans.find((p) => p.id === selectedPlan);
+    if (!selected) return;
+    setPaymentAmount(String(selected.price));
+  }, [selectedPlan]);
 
   const { data: invoices } = trpc.invoices.list.useQuery();
   const { data: invoiceStats } = trpc.invoices.stats.useQuery();
@@ -90,8 +113,8 @@ export default function Payments() {
         "تم تفعيل اشتراكك الشهري بنجاح. يمكنك الآن استخدام المساعد القانوني الذكي.",
       );
     },
-    onError: () => {
-      toast.error("حدث خطأ أثناء تفعيل الاشتراك. يرجى المحاولة مرة أخرى.");
+    onError: (error) => {
+      toast.error(error.message || "حدث خطأ أثناء تفعيل الاشتراك. يرجى المحاولة مرة أخرى.");
     },
   });
 
@@ -107,7 +130,7 @@ export default function Payments() {
         "محفظة رقمية",
         "دعم عملات متعددة",
       ],
-      status: "متصل",
+      status: "قيد الإعداد",
     },
     {
       id: "stc",
@@ -120,7 +143,7 @@ export default function Payments() {
         "تحويل أموال سريع",
         "دعم جميع العملاء السعوديين",
       ],
-      status: "متصل",
+      status: "قيد الإعداد",
     },
   ];
 
@@ -139,8 +162,13 @@ export default function Payments() {
       return;
     }
 
+    if (!selectedPlan) {
+      toast.error("يرجى اختيار خطة الاشتراك أولاً");
+      return;
+    }
+
     // هنا يتم تفعيل الاشتراك الشهري داخل النظام بعد إتمام الدفع عبر البوابة
-    activateSubscription.mutate();
+    activateSubscription.mutate({ plan: selectedPlan });
   };
 
   return (
@@ -153,7 +181,7 @@ export default function Payments() {
             إدارة المدفوعات
           </h1>
           <p className="text-muted-foreground mt-2">
-            إدارة طرق الدفع والتحويلات المالية
+            إدارة الاشتراك والفواتير، وتهيئة بوابات الدفع
           </p>
         </div>
 
@@ -161,12 +189,12 @@ export default function Payments() {
         <div>
           <h2 className="text-xl font-bold text-foreground mb-2">خطط الاشتراك الشهرية</h2>
           <p className="text-sm text-muted-foreground mb-4">
-            اختر الخطة الأنسب لطبيعة عملك القانوني، وجميع الأسعار بالريال السعودي شهرياً.
+            اختر خطة الاشتراك، وجميع الأسعار بالريال السعودي شهرياً.
           </p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {subscriptionPlans.map((plan) => {
               const isSelected = selectedPlan === plan.id;
-              const isPopular = plan.id === "office";
+              const isPopular = plan.id === "monthly";
               return (
                 <Card
                   key={plan.id}
@@ -180,7 +208,7 @@ export default function Payments() {
                 >
                   {isPopular && (
                     <Badge className="absolute -top-3 left-4 bg-gold text-black border-gold/80 text-[11px] px-2 py-0.5">
-                      الأكثر اختياراً
+                      الخطة الحالية
                     </Badge>
                   )}
                   <CardHeader>
@@ -212,6 +240,9 @@ export default function Payments() {
         {/* Payment Gateways */}
         <div>
           <h2 className="text-xl font-bold text-foreground mb-4">طرق الدفع المتاحة</h2>
+          <p className="text-sm text-muted-foreground mb-4">
+            ملاحظة: بوابات الدفع ظاهرة للتهيئة والعرض فقط، وقد لا تكون مفعّلة في بيئة الإنتاج.
+          </p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {paymentGateways.map((gateway) => {
               const Icon = gateway.icon;
@@ -238,7 +269,7 @@ export default function Payments() {
                           </p>
                         </div>
                       </div>
-                      <Badge className="bg-green-500/20 text-green-400 border-green-500/30">
+                      <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30">
                         {gateway.status}
                       </Badge>
                     </div>

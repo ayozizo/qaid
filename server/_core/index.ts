@@ -10,6 +10,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { sdk } from "./sdk";
 import { storagePut } from "../storage";
+import { startLegalCrawlerScheduler } from "../legalCrawler";
 import { serveStatic, setupVite } from "./vite";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -128,6 +129,14 @@ async function startServer() {
     })
   );
   console.log("[Server] tRPC middleware configured");
+
+  const crawler = startLegalCrawlerScheduler();
+  if (crawler.started) {
+    console.log(`[LegalCrawler] Scheduler started (intervalMinutes=${crawler.intervalMinutes})`);
+  } else {
+    console.log(`[LegalCrawler] Scheduler not started (${crawler.reason})`);
+  }
+
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {
     await setupVite(app, server);

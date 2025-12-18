@@ -1,8 +1,26 @@
+import React from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { trpc } from "@/lib/trpc";
 import {
   Users,
@@ -45,7 +63,25 @@ const roleIcons: Record<string, React.ElementType> = {
 };
 
 export default function Team() {
+  const utils = trpc.useUtils();
   const { data: users, isLoading } = trpc.team.list.useQuery();
+  const addMember = trpc.team.addMember.useMutation({
+    onSuccess: async () => {
+      toast.success("تم إضافة العضو بنجاح");
+      await utils.team.list.invalidate();
+    },
+    onError: (error) => {
+      toast.error(error.message || "حدث خطأ أثناء إضافة العضو");
+    },
+  });
+
+  const [isAddOpen, setIsAddOpen] = React.useState(false);
+  const [memberForm, setMemberForm] = React.useState({
+    name: "",
+    email: "",
+    phone: "",
+    role: "lawyer" as "lawyer" | "assistant" | "client",
+  });
 
   const getInitials = (name: string | null) => {
     if (!name) return "؟";
@@ -73,12 +109,108 @@ export default function Team() {
 
           <Button
             className="btn-gold"
-            onClick={() => toast.info("ميزة دعوة الأعضاء قيد التطوير")}
+            onClick={() => setIsAddOpen(true)}
           >
             <UserPlus className="h-4 w-4 ml-2" />
             دعوة عضو
           </Button>
         </div>
+
+        <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>إضافة عضو جديد</DialogTitle>
+              <DialogDescription>
+                سيتم إضافة العضو ضمن نفس الحساب، مع تطبيق حد المقاعد حسب الباقة.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="member-name">الاسم</Label>
+                <Input
+                  id="member-name"
+                  value={memberForm.name}
+                  onChange={(e) => setMemberForm({ ...memberForm, name: e.target.value })}
+                  placeholder="اسم العضو"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="member-email">البريد الإلكتروني (اختياري)</Label>
+                <Input
+                  id="member-email"
+                  type="email"
+                  value={memberForm.email}
+                  onChange={(e) => setMemberForm({ ...memberForm, email: e.target.value })}
+                  placeholder="example@domain.com"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="member-phone">رقم الهاتف (اختياري)</Label>
+                <Input
+                  id="member-phone"
+                  value={memberForm.phone}
+                  onChange={(e) => setMemberForm({ ...memberForm, phone: e.target.value })}
+                  placeholder="05xxxxxxxx"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>الدور</Label>
+                <Select
+                  value={memberForm.role}
+                  onValueChange={(value) =>
+                    setMemberForm({
+                      ...memberForm,
+                      role: value as "lawyer" | "assistant" | "client",
+                    })
+                  }
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="اختر الدور" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="lawyer">محامي</SelectItem>
+                    <SelectItem value="assistant">مساعد</SelectItem>
+                    <SelectItem value="client">عميل</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setIsAddOpen(false)}
+                disabled={addMember.isPending}
+              >
+                إلغاء
+              </Button>
+              <Button
+                className="btn-gold"
+                onClick={async () => {
+                  if (!memberForm.name.trim()) {
+                    toast.error("يرجى إدخال الاسم");
+                    return;
+                  }
+                  await addMember.mutateAsync({
+                    name: memberForm.name.trim(),
+                    email: memberForm.email.trim() ? memberForm.email.trim() : null,
+                    phone: memberForm.phone.trim() ? memberForm.phone.trim() : null,
+                    role: memberForm.role,
+                  });
+                  setIsAddOpen(false);
+                  setMemberForm({ name: "", email: "", phone: "", role: "lawyer" });
+                }}
+                disabled={addMember.isPending}
+              >
+                {addMember.isPending ? "جاري الإضافة..." : "إضافة"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* Stats */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

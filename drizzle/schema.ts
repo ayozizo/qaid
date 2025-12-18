@@ -1,14 +1,31 @@
 import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, boolean, bigint } from "drizzle-orm/mysql-core";
 
+// ==================== ORGANIZATIONS ====================
+export const organizations = mysqlTable("organizations", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 255 }),
+  subscriptionPlan: mysqlEnum("subscriptionPlan", ["individual", "law_firm", "enterprise"]).default("individual").notNull(),
+  seatLimit: int("seatLimit").default(1).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type Organization = typeof organizations.$inferSelect;
+export type InsertOrganization = typeof organizations.$inferInsert;
+
 // ==================== USERS ====================
 export const users = mysqlTable("users", {
   id: int("id").autoincrement().primaryKey(),
   openId: varchar("openId", { length: 64 }).notNull().unique(),
+  organizationId: int("organizationId"),
   name: text("name"),
   email: varchar("email", { length: 320 }),
   phone: varchar("phone", { length: 20 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
   role: mysqlEnum("role", ["admin", "lawyer", "assistant", "client"]).default("lawyer").notNull(),
+  accountType: mysqlEnum("accountType", ["individual", "law_firm", "enterprise"]).default("individual").notNull(),
+  subscriptionPlan: mysqlEnum("subscriptionPlan", ["individual", "law_firm", "enterprise"]).default("individual").notNull(),
+  seatLimit: int("seatLimit").default(1).notNull(),
   avatarUrl: text("avatarUrl"),
   specialty: varchar("specialty", { length: 255 }),
   barNumber: varchar("barNumber", { length: 100 }),
@@ -263,3 +280,188 @@ export const timeEntries = mysqlTable("timeEntries", {
 
 export type TimeEntry = typeof timeEntries.$inferSelect;
 export type InsertTimeEntry = typeof timeEntries.$inferInsert;
+
+export const serviceCatalog = mysqlTable("serviceCatalog", {
+  id: int("id").autoincrement().primaryKey(),
+  organizationId: int("organizationId").notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  description: text("description"),
+  durationMinutes: int("durationMinutes").default(60).notNull(),
+  priceAmount: bigint("priceAmount", { mode: "number" }).default(0).notNull(),
+  currency: varchar("currency", { length: 10 }).default("SAR").notNull(),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type ServiceCatalogItem = typeof serviceCatalog.$inferSelect;
+export type InsertServiceCatalogItem = typeof serviceCatalog.$inferInsert;
+
+export const serviceRequests = mysqlTable("serviceRequests", {
+  id: int("id").autoincrement().primaryKey(),
+  organizationId: int("organizationId").notNull(),
+  serviceId: int("serviceId"),
+  clientName: varchar("clientName", { length: 255 }).notNull(),
+  clientEmail: varchar("clientEmail", { length: 320 }),
+  clientPhone: varchar("clientPhone", { length: 20 }),
+  notes: text("notes"),
+  preferredAt: timestamp("preferredAt"),
+  status: mysqlEnum("status", ["new", "in_progress", "completed", "cancelled"]).default("new").notNull(),
+  assignedToUserId: int("assignedToUserId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type ServiceRequest = typeof serviceRequests.$inferSelect;
+export type InsertServiceRequest = typeof serviceRequests.$inferInsert;
+
+export const sitePages = mysqlTable("sitePages", {
+  id: int("id").autoincrement().primaryKey(),
+  organizationId: int("organizationId").notNull(),
+  slug: varchar("slug", { length: 100 }).notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  content: text("content"),
+  isPublished: boolean("isPublished").default(true).notNull(),
+  updatedByUserId: int("updatedByUserId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type SitePage = typeof sitePages.$inferSelect;
+export type InsertSitePage = typeof sitePages.$inferInsert;
+
+export const publicTeamMembers = mysqlTable("publicTeamMembers", {
+  id: int("id").autoincrement().primaryKey(),
+  organizationId: int("organizationId").notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  title: varchar("title", { length: 255 }),
+  bio: text("bio"),
+  avatarUrl: text("avatarUrl"),
+  sortOrder: int("sortOrder").default(0).notNull(),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type PublicTeamMember = typeof publicTeamMembers.$inferSelect;
+export type InsertPublicTeamMember = typeof publicTeamMembers.$inferInsert;
+
+export const practiceAreas = mysqlTable("practiceAreas", {
+  id: int("id").autoincrement().primaryKey(),
+  organizationId: int("organizationId").notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  description: text("description"),
+  sortOrder: int("sortOrder").default(0).notNull(),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type PracticeArea = typeof practiceAreas.$inferSelect;
+export type InsertPracticeArea = typeof practiceAreas.$inferInsert;
+
+export const testimonials = mysqlTable("testimonials", {
+  id: int("id").autoincrement().primaryKey(),
+  organizationId: int("organizationId").notNull(),
+  clientName: varchar("clientName", { length: 255 }).notNull(),
+  clientTitle: varchar("clientTitle", { length: 255 }),
+  content: text("content").notNull(),
+  rating: int("rating").default(5).notNull(),
+  isPublished: boolean("isPublished").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type Testimonial = typeof testimonials.$inferSelect;
+export type InsertTestimonial = typeof testimonials.$inferInsert;
+
+export const contactMessages = mysqlTable("contactMessages", {
+  id: int("id").autoincrement().primaryKey(),
+  organizationId: int("organizationId").notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  email: varchar("email", { length: 320 }),
+  phone: varchar("phone", { length: 20 }),
+  message: text("message").notNull(),
+  status: mysqlEnum("status", ["new", "replied", "closed"]).default("new").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type ContactMessage = typeof contactMessages.$inferSelect;
+export type InsertContactMessage = typeof contactMessages.$inferInsert;
+
+export const blogPosts = mysqlTable("blogPosts", {
+  id: int("id").autoincrement().primaryKey(),
+  organizationId: int("organizationId").notNull(),
+  slug: varchar("slug", { length: 150 }).notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  excerpt: text("excerpt"),
+  content: text("content"),
+  isPublished: boolean("isPublished").default(true).notNull(),
+  publishedAt: timestamp("publishedAt"),
+  updatedByUserId: int("updatedByUserId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type BlogPost = typeof blogPosts.$inferSelect;
+export type InsertBlogPost = typeof blogPosts.$inferInsert;
+
+export const toolUsage = mysqlTable("toolUsage", {
+  id: int("id").autoincrement().primaryKey(),
+  organizationId: int("organizationId").notNull(),
+  tool: varchar("tool", { length: 64 }).notNull(),
+  day: varchar("day", { length: 10 }).notNull(),
+  count: int("count").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type ToolUsage = typeof toolUsage.$inferSelect;
+export type InsertToolUsage = typeof toolUsage.$inferInsert;
+
+export const legalSourceDocuments = mysqlTable("legalSourceDocuments", {
+  id: int("id").autoincrement().primaryKey(),
+  source: varchar("source", { length: 64 }).notNull(),
+  url: text("url").notNull(),
+  title: text("title"),
+  contentText: text("contentText"),
+  contentHash: varchar("contentHash", { length: 64 }),
+  httpStatus: int("httpStatus"),
+  etag: varchar("etag", { length: 255 }),
+  lastModified: varchar("lastModified", { length: 255 }),
+  fetchedAt: timestamp("fetchedAt"),
+  status: mysqlEnum("status", ["ok", "error", "skipped"]).default("ok").notNull(),
+  error: text("error"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type LegalSourceDocument = typeof legalSourceDocuments.$inferSelect;
+export type InsertLegalSourceDocument = typeof legalSourceDocuments.$inferInsert;
+
+export const legalSourceChunks = mysqlTable("legalSourceChunks", {
+  id: int("id").autoincrement().primaryKey(),
+  documentId: int("documentId").notNull(),
+  chunkIndex: int("chunkIndex").notNull(),
+  text: text("text").notNull(),
+  embeddingJson: text("embeddingJson"),
+  metaJson: text("metaJson"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type LegalSourceChunk = typeof legalSourceChunks.$inferSelect;
+export type InsertLegalSourceChunk = typeof legalSourceChunks.$inferInsert;
+
+export const legalCrawlerRuns = mysqlTable("legalCrawlerRuns", {
+  id: int("id").autoincrement().primaryKey(),
+  startedAt: timestamp("startedAt").defaultNow().notNull(),
+  finishedAt: timestamp("finishedAt"),
+  status: mysqlEnum("status", ["running", "success", "error"]).default("running").notNull(),
+  pagesCrawled: int("pagesCrawled").default(0).notNull(),
+  documentsUpdated: int("documentsUpdated").default(0).notNull(),
+  error: text("error"),
+});
+
+export type LegalCrawlerRun = typeof legalCrawlerRuns.$inferSelect;
+export type InsertLegalCrawlerRun = typeof legalCrawlerRuns.$inferInsert;

@@ -52,7 +52,7 @@ export default function Settings() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>اسم المكتب</Label>
-                    <Input placeholder="مكتب المحاماة" defaultValue="مكتب قيد للمحاماة" />
+                    <Input placeholder="مكتب المحاماة" defaultValue="مكتب موازين للمحاماة" />
                   </div>
                   <div className="space-y-2">
                     <Label>رقم الترخيص</Label>

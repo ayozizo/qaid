@@ -33,11 +33,16 @@ import {
   Bot,
   Calendar,
   Receipt,
+  ListChecks,
   BarChart3,
   Settings,
   Bell,
-  FolderOpen,
   Scale,
+  Store,
+  ClipboardList,
+  BookOpen,
+  MessageSquareText,
+  Wand2,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -48,14 +53,26 @@ const menuItems = [
   { icon: LayoutDashboard, label: "لوحة التحكم", labelEn: "Dashboard", path: "/dashboard" },
   { icon: Briefcase, label: "القضايا", labelEn: "Cases", path: "/cases" },
   { icon: Users, label: "العملاء", labelEn: "Clients", path: "/clients" },
+  { icon: ListChecks, label: "المهام", labelEn: "Tasks", path: "/tasks" },
   { icon: FileText, label: "المستندات", labelEn: "Documents", path: "/documents" },
   { icon: Bot, label: "المساعد الذكي", labelEn: "AI Assistant", path: "/ai-assistant" },
+  { icon: Wand2, label: "أدوات ذكية", labelEn: "Legal Tools", path: "/legal-tools" },
   { icon: Calendar, label: "التقويم", labelEn: "Calendar", path: "/calendar" },
   { icon: Receipt, label: "الفواتير", labelEn: "Invoices", path: "/invoices" },
+  { icon: Store, label: "كتالوج الخدمات", labelEn: "Service Catalog", path: "/service-catalog" },
+  { icon: ClipboardList, label: "طلبات الخدمات", labelEn: "Service Requests", path: "/service-requests" },
+  { icon: FileText, label: "صفحات الموقع", labelEn: "Site Pages", path: "/cms/pages" },
+  { icon: Users, label: "فريق الموقع", labelEn: "Site Team", path: "/cms/team" },
+  { icon: BookOpen, label: "ممارسات الموقع", labelEn: "Site Practices", path: "/cms/practices" },
+  { icon: MessageSquareText, label: "آراء العملاء", labelEn: "Testimonials", path: "/cms/testimonials" },
+  { icon: MessageSquareText, label: "رسائل التواصل", labelEn: "Contact Messages", path: "/cms/messages" },
+  { icon: BookOpen, label: "المدونة", labelEn: "Blog", path: "/cms/blog" },
   { icon: BarChart3, label: "التحليلات", labelEn: "Analytics", path: "/analytics" },
   { icon: BarChart3, label: "التقارير", labelEn: "Reports", path: "/reports" },
   { icon: Bell, label: "الإشعارات", labelEn: "Notifications", path: "/notifications" },
   { icon: Receipt, label: "المدفوعات", labelEn: "Payments", path: "/payments" },
+  { icon: Users, label: "الفريق", labelEn: "Team", path: "/team" },
+  { icon: Settings, label: "الإعدادات", labelEn: "Settings", path: "/settings" },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
@@ -91,12 +108,12 @@ export default function DashboardLayout({
             <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-gold-light to-gold-dark flex items-center justify-center shadow-lg border-gold-glow">
               <Scale className="w-10 h-10 text-background" />
             </div>
-            <h1 className="text-3xl font-bold text-gold-gradient">قيد</h1>
+            <h1 className="text-3xl font-bold text-gold-gradient">موازين</h1>
           </div>
 
           <div className="flex flex-col items-center gap-4 text-center">
             <h2 className="text-xl font-semibold text-foreground">
-              مرحباً بك في نظام قيد
+              مرحباً بك في نظام موازين
             </h2>
             <p className="text-sm text-muted-foreground max-w-sm">
               نظام إدارة المكاتب القانونية المتكامل مع الذكاء الاصطناعي المتخصص
@@ -212,7 +229,7 @@ function DashboardLayoutContent({
                   </div>
                   <div className="flex flex-col min-w-0">
                     <span className="font-bold text-lg text-gold-gradient">
-                      قيد
+                      موازين
                     </span>
                     <span className="text-[10px] text-muted-foreground truncate">
                       المساعد القانوني الذكي

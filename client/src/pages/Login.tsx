@@ -77,7 +77,7 @@ export default function Login() {
             <Scale className="h-8 w-8 text-gold" />
           </div>
           <h1 className="text-3xl font-bold text-foreground mb-2">
-            <span className="text-gold">قيد</span>
+            <span className="text-gold">موازين</span>
           </h1>
           <p className="text-muted-foreground">نظام إدارة القضايا القانونية المتقدم</p>
         </div>
@@ -213,7 +213,7 @@ export default function Login() {
         {/* Footer */}
         <div className="text-center mt-8">
           <p className="text-xs text-muted-foreground">
-            © 2024 قيد. جميع الحقوق محفوظة.
+            © 2024 موازين. جميع الحقوق محفوظة.
           </p>
         </div>
       </div>
