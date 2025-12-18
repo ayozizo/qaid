@@ -43,6 +43,7 @@ import Blog from "./pages/Blog";
 import BlogPost from "./pages/BlogPost";
 import CmsBlogAdmin from "./pages/CmsBlogAdmin";
 import LegalTools from "./pages/LegalTools";
+import PublicClientPortal from "./pages/PublicClientPortal";
 
 function Router() {
   return (
@@ -74,6 +75,7 @@ function Router() {
       <Route path={"/analytics"} component={Analytics} />
       <Route path={"/settings"} component={Settings} />
       <Route path={"/client-portal"} component={ClientPortal} />
+      <Route path={"/portal/:token"} component={PublicClientPortal} />
       <Route path={"/notifications"} component={Notifications} />
       <Route path={"/payments"} component={Payments} />
       <Route path={"/reports"} component={Reports} />

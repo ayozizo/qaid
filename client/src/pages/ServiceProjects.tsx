@@ -88,7 +88,7 @@ export default function ServiceProjects() {
 
   const clientNameById = useMemo(() => {
     const map = new Map<number, string>();
-    (clients ?? []).forEach((c) => map.set(c.id, c.name));
+    (clients ?? []).forEach((c: any) => map.set(c.id, c.name));
     return map;
   }, [clients]);
 
@@ -244,7 +244,7 @@ export default function ServiceProjects() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="none">بدون</SelectItem>
-                        {(clients ?? []).map((c) => (
+                        {(clients ?? []).map((c: any) => (
                           <SelectItem key={c.id} value={String(c.id)}>
                             {c.name}
                           </SelectItem>

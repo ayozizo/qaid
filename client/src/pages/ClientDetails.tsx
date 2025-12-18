@@ -2,11 +2,13 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { trpc } from "@/lib/trpc";
-import { Briefcase, FileText, ArrowRight, Calendar, Download } from "lucide-react";
+import { Briefcase, FileText, ArrowRight, Calendar, Download, Copy, Link2, ShieldOff } from "lucide-react";
 import { useMemo } from "react";
 import { useLocation, useRoute } from "wouter";
+import { toast } from "sonner";
 
 const caseStatusLabels: Record<string, string> = {
   active: "نشطة",
@@ -54,6 +56,8 @@ export default function ClientDetails() {
   const [, setLocation] = useLocation();
   const [match, params] = useRoute("/clients/:id");
 
+  const utils = trpc.useContext();
+
   const clientId = useMemo(() => {
     const raw = params?.id;
     const n = raw ? Number(raw) : NaN;
@@ -74,6 +78,28 @@ export default function ClientDetails() {
     { clientId: clientId ?? 0 },
     { enabled: Boolean(match) && clientId !== null }
   );
+
+  const portalGenerate = trpc.clients.portalGenerate.useMutation({
+    onSuccess: async (res) => {
+      await utils.clients.getById.invalidate({ id: clientId ?? 0 });
+      const link = `${window.location.origin}/portal/${res.token}`;
+      await navigator.clipboard.writeText(link);
+      toast.success("تم إنشاء رابط البوابة ونسخه");
+    },
+    onError: (e: any) => toast.error(e?.message ?? "تعذر إنشاء رابط البوابة"),
+  });
+
+  const portalDisable = trpc.clients.portalDisable.useMutation({
+    onSuccess: async () => {
+      await utils.clients.getById.invalidate({ id: clientId ?? 0 });
+      toast.success("تم تعطيل بوابة العميل");
+    },
+    onError: (e: any) => toast.error(e?.message ?? "تعذر تعطيل بوابة العميل"),
+  });
+
+  const portalToken = (client as any)?.portalToken as string | null | undefined;
+  const portalEnabled = Boolean((client as any)?.portalEnabled);
+  const portalLink = portalToken ? `${window.location.origin}/portal/${portalToken}` : "";
 
   if (!match || clientId === null) {
     return (
@@ -110,6 +136,58 @@ export default function ClientDetails() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <Card className="card-gold">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Link2 className="h-5 w-5 text-gold" />
+                بوابة العميل
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex flex-col gap-2">
+                <Input value={portalEnabled && portalLink ? portalLink : ""} readOnly placeholder="لم يتم تفعيل بوابة العميل بعد" />
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    className="btn-gold"
+                    disabled={portalGenerate.isPending || clientLoading}
+                    onClick={async () => {
+                      if (!clientId) return;
+                      await portalGenerate.mutateAsync({ clientId });
+                    }}
+                  >
+                    توليد رابط
+                  </Button>
+                  <Button
+                    variant="outline"
+                    disabled={!portalEnabled || !portalLink}
+                    onClick={async () => {
+                      if (!portalLink) return;
+                      await navigator.clipboard.writeText(portalLink);
+                      toast.success("تم نسخ رابط البوابة");
+                    }}
+                  >
+                    <Copy className="h-4 w-4 ml-2" />
+                    نسخ
+                  </Button>
+                  <Button
+                    variant="outline"
+                    disabled={!portalEnabled || portalDisable.isPending || clientLoading}
+                    onClick={async () => {
+                      if (!clientId) return;
+                      await portalDisable.mutateAsync({ clientId });
+                    }}
+                  >
+                    <ShieldOff className="h-4 w-4 ml-2" />
+                    تعطيل
+                  </Button>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                مشاركة الرابط تمنح العميل صلاحية عرض بياناته فقط (Read-only).
+              </p>
+            </CardContent>
+          </Card>
+
           <Card className="card-gold">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">

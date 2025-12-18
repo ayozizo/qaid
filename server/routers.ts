@@ -1103,6 +1103,87 @@ export const appRouter = router({
       }),
   }),
 
+  // ==================== CLIENT PORTAL (Public, token-based) ====================
+  portal: router({
+    get: publicProcedure
+      .input(z.object({ token: z.string().min(10).max(128) }))
+      .query(async ({ input }) => {
+        const client = await db.getClientByPortalToken(input.token);
+        if (!client) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "رابط البوابة غير صالح" });
+        }
+
+        const clientId = Number((client as any).id);
+        const cases = await db.getCasesByClientId(clientId);
+        const hearings = await db.getHearingsByClientId(clientId);
+        const invoices = await db.getInvoicesByClientId(clientId);
+        const payments = await db.getPaymentsByClientId(clientId);
+        const documents = await db.getSharedDocumentsByClientId(clientId);
+
+        const timeline = [] as any[];
+        for (const c of cases as any[]) {
+          timeline.push({
+            kind: "case",
+            at: c.createdAt,
+            id: c.id,
+            title: c.title,
+            meta: { status: c.status, caseNumber: c.caseNumber },
+          });
+        }
+        for (const h of hearings as any[]) {
+          timeline.push({
+            kind: "hearing",
+            at: h.hearingDate,
+            id: h.id,
+            title: h.title,
+            meta: { status: h.status, caseId: h.caseId },
+          });
+        }
+        for (const i of invoices as any[]) {
+          timeline.push({
+            kind: "invoice",
+            at: i.createdAt,
+            id: i.id,
+            title: `فاتورة #${i.invoiceNumber}`,
+            meta: { status: i.status, totalAmount: i.totalAmount, currency: i.currency },
+          });
+        }
+        for (const p of payments as any[]) {
+          timeline.push({
+            kind: "payment",
+            at: p.paidAt,
+            id: p.id,
+            title: "دفعة",
+            meta: { amount: p.amount, currency: p.currency, invoiceId: p.invoiceId, method: p.method },
+          });
+        }
+        for (const d of documents as any[]) {
+          timeline.push({
+            kind: "document",
+            at: d.createdAt,
+            id: d.id,
+            title: d.name,
+            meta: { type: d.type },
+          });
+        }
+
+        timeline.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+
+        return {
+          client: {
+            id: clientId,
+            name: (client as any).name,
+          },
+          cases,
+          hearings,
+          invoices,
+          payments,
+          documents,
+          timeline,
+        };
+      }),
+  }),
+
   // ==================== CLIENTS ====================
   clients: router({
     list: protectedProcedure
@@ -1189,6 +1270,37 @@ export const appRouter = router({
       .input(z.object({ clientId: z.number() }))
       .query(async ({ input }) => {
         return db.getCommunicationLogsByClientId(input.clientId);
+      }),
+
+    portalGenerate: protectedProcedure
+      .input(z.object({ clientId: z.number() }))
+      .mutation(async ({ input }) => {
+        const client = await db.getClientById(input.clientId);
+        if (!client) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "العميل غير موجود" });
+        }
+
+        const token = nanoid(40);
+        await db.updateClient(input.clientId, {
+          portalToken: token,
+          portalEnabled: true,
+        } as any);
+
+        return { token } as const;
+      }),
+
+    portalDisable: protectedProcedure
+      .input(z.object({ clientId: z.number() }))
+      .mutation(async ({ input }) => {
+        const client = await db.getClientById(input.clientId);
+        if (!client) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "العميل غير موجود" });
+        }
+        await db.updateClient(input.clientId, {
+          portalEnabled: false,
+          portalToken: null,
+        } as any);
+        return { success: true as const };
       }),
   }),
 
@@ -1386,6 +1498,7 @@ export const appRouter = router({
         clientId: z.number().optional().nullable(),
         serviceProjectId: z.number().optional().nullable(),
         isTemplate: z.boolean().optional(),
+        isSharedWithClient: z.boolean().optional(),
         templateCategory: z.string().optional().nullable(),
         expiresAt: z.date().optional().nullable(),
         renewAt: z.date().optional().nullable(),
@@ -1408,6 +1521,7 @@ export const appRouter = router({
         type: z.enum(["contract", "memo", "pleading", "evidence", "correspondence", "court_order", "power_of_attorney", "other"]).optional(),
         serviceProjectId: z.number().optional().nullable(),
         isTemplate: z.boolean().optional(),
+        isSharedWithClient: z.boolean().optional(),
         templateCategory: z.string().optional().nullable(),
         expiresAt: z.date().optional().nullable(),
         renewAt: z.date().optional().nullable(),

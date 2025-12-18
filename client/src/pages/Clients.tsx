@@ -352,7 +352,7 @@ export default function Clients() {
               ))}
             </>
           ) : clients && clients.length > 0 ? (
-            clients.map((client) => {
+            clients.map((client: any) => {
               const TypeIcon = clientTypeIcons[client.type];
               return (
                 <Card

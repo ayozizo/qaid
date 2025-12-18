@@ -1252,21 +1252,30 @@ export async function getClientById(id: number) {
   return result[0];
 }
 
-export async function getAllClients(search?: string) {
+export async function getClientByPortalToken(token: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(clients).where(eq(clients.portalToken, token)).limit(1);
+  const client = result[0] as any;
+  if (!client) return undefined;
+  if (client.portalEnabled !== true) return undefined;
+  return client;
+}
+
+export async function getSharedDocumentsByClientId(clientId: number) {
   const db = await getDb();
   if (!db) return [];
-  
-  if (search) {
-    return db.select().from(clients)
-      .where(or(
-        like(clients.name, `%${search}%`),
-        like(clients.email, `%${search}%`),
-        like(clients.phone, `%${search}%`)
-      ))
-      .orderBy(desc(clients.createdAt));
-  }
-  
-  return db.select().from(clients).orderBy(desc(clients.createdAt));
+  return db
+    .select()
+    .from(documents)
+    .where(
+      and(
+        eq(documents.clientId, clientId),
+        eq(documents.isSharedWithClient, true),
+        or(eq(documents.isTemplate, false), sql`(${documents.isTemplate} IS NULL)`)
+      )
+    )
+    .orderBy(desc(documents.createdAt));
 }
 
 export async function getClientCount() {
@@ -1274,6 +1283,27 @@ export async function getClientCount() {
   if (!db) return 0;
   const result = await db.select({ count: count() }).from(clients);
   return result[0]?.count ?? 0;
+}
+
+export async function getAllClients(search?: string) {
+  const db = await getDb();
+  if (!db) return [];
+
+  if (search) {
+    return db
+      .select()
+      .from(clients)
+      .where(
+        or(
+          like(clients.name, `%${search}%`),
+          like(clients.email, `%${search}%`),
+          like(clients.phone, `%${search}%`)
+        )
+      )
+      .orderBy(desc(clients.createdAt));
+  }
+
+  return db.select().from(clients).orderBy(desc(clients.createdAt));
 }
 
 // ==================== CASE FUNCTIONS ====================
@@ -1379,6 +1409,19 @@ export async function getHearingsByCaseId(caseId: number) {
   const db = await getDb();
   if (!db) return [];
   return db.select().from(hearings).where(eq(hearings.caseId, caseId)).orderBy(desc(hearings.hearingDate));
+}
+
+export async function getHearingsByClientId(clientId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const clientCases = await db.select({ id: cases.id }).from(cases).where(eq(cases.clientId, clientId));
+  const ids = clientCases.map((c) => c.id);
+  if (ids.length === 0) return [];
+  return db
+    .select()
+    .from(hearings)
+    .where(or(...ids.map((id) => eq(hearings.caseId, id))))
+    .orderBy(desc(hearings.hearingDate));
 }
 
 export async function getUpcomingHearings(days: number = 7) {
@@ -1797,6 +1840,20 @@ export async function getPaymentsByInvoiceId(invoiceId: number) {
   const db = await getDb();
   if (!db) return [];
   return db.select().from(payments).where(eq(payments.invoiceId, invoiceId)).orderBy(desc(payments.paidAt));
+}
+
+export async function getPaymentsByClientId(clientId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  const inv = await db.select({ id: invoices.id }).from(invoices).where(eq(invoices.clientId, clientId));
+  const ids = inv.map((i) => i.id);
+  if (ids.length === 0) return [];
+  return db
+    .select()
+    .from(payments)
+    .where(or(...ids.map((id) => eq(payments.invoiceId, id))))
+    .orderBy(desc(payments.paidAt));
 }
 
 // ==================== CALENDAR EVENT FUNCTIONS ====================

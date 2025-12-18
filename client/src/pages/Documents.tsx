@@ -118,6 +118,7 @@ export default function Documents() {
   const [expiresAt, setExpiresAt] = useState("");
   const [renewAt, setRenewAt] = useState("");
   const [reminderDays, setReminderDays] = useState<number>(30);
+  const [isSharedWithClient, setIsSharedWithClient] = useState(false);
 
   const [isUseTemplateOpen, setIsUseTemplateOpen] = useState(false);
   const [useTemplateId, setUseTemplateId] = useState<number | null>(null);
@@ -133,6 +134,7 @@ export default function Documents() {
   const [editExpiresAt, setEditExpiresAt] = useState("");
   const [editRenewAt, setEditRenewAt] = useState("");
   const [editReminderDays, setEditReminderDays] = useState<number>(30);
+  const [editIsSharedWithClient, setEditIsSharedWithClient] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const apiBaseUrl = useMemo(() => import.meta.env.VITE_API_BASE_URL ?? "", []);
@@ -147,7 +149,7 @@ export default function Documents() {
   const { data: clients } = trpc.clients.list.useQuery();
   const clientsById = useMemo(() => {
     const map = new Map<number, string>();
-    (clients ?? []).forEach((c) => {
+    (clients ?? []).forEach((c: any) => {
       map.set(c.id, c.name);
     });
     return map;
@@ -168,6 +170,7 @@ export default function Documents() {
       setExpiresAt("");
       setRenewAt("");
       setReminderDays(30);
+      setIsSharedWithClient(false);
     },
     onError: () => {
       toast.error("حدث خطأ أثناء حفظ بيانات المستند");
@@ -353,6 +356,16 @@ export default function Documents() {
                   <Switch checked={isTemplateUpload} onCheckedChange={setIsTemplateUpload} />
                 </div>
 
+                {!isTemplateUpload && (
+                  <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/50 border border-border/50">
+                    <div className="space-y-1">
+                      <Label>مشاركة مع العميل</Label>
+                      <p className="text-xs text-muted-foreground">إظهار المستند في بوابة العميل</p>
+                    </div>
+                    <Switch checked={isSharedWithClient} onCheckedChange={setIsSharedWithClient} />
+                  </div>
+                )}
+
                 <div className="space-y-2">
                   <Label>العميل *</Label>
                   <Select
@@ -363,7 +376,7 @@ export default function Documents() {
                       <SelectValue placeholder="اختر العميل" />
                     </SelectTrigger>
                     <SelectContent>
-                      {(clients ?? []).map((client) => (
+                      {(clients ?? []).map((client: any) => (
                         <SelectItem key={client.id} value={String(client.id)}>
                           {client.name}
                         </SelectItem>
@@ -446,6 +459,7 @@ export default function Documents() {
                         caseId: null,
                         clientId: isTemplateUpload ? null : selectedClientId,
                         isTemplate: isTemplateUpload,
+                        isSharedWithClient: isTemplateUpload ? false : Boolean(isSharedWithClient),
                         templateCategory: isTemplateUpload ? (templateCategory.trim() ? templateCategory.trim() : null) : null,
                         expiresAt: toDateOrNull(expiresAt),
                         renewAt: toDateOrNull(renewAt),
@@ -486,7 +500,7 @@ export default function Documents() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">بدون عميل</SelectItem>
-                    {(clients ?? []).map((client) => (
+                    {(clients ?? []).map((client: any) => (
                       <SelectItem key={client.id} value={String(client.id)}>
                         {client.name}
                       </SelectItem>
@@ -555,6 +569,16 @@ export default function Documents() {
                 </div>
                 <Switch checked={editIsTemplate} onCheckedChange={setEditIsTemplate} />
               </div>
+
+              {!editIsTemplate && (
+                <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/50 border border-border/50">
+                  <div className="space-y-1">
+                    <Label>مشاركة مع العميل</Label>
+                    <p className="text-xs text-muted-foreground">إظهار المستند في بوابة العميل</p>
+                  </div>
+                  <Switch checked={editIsSharedWithClient} onCheckedChange={setEditIsSharedWithClient} />
+                </div>
+              )}
               {editIsTemplate && (
                 <div className="space-y-2">
                   <Label>تصنيف القالب</Label>
@@ -597,6 +621,7 @@ export default function Documents() {
                     name: editName.trim() ? editName.trim() : undefined,
                     description: editDescription.trim() ? editDescription.trim() : null,
                     isTemplate: editIsTemplate,
+                    isSharedWithClient: editIsTemplate ? false : Boolean(editIsSharedWithClient),
                     templateCategory: editIsTemplate ? (editTemplateCategory.trim() ? editTemplateCategory.trim() : null) : null,
                     expiresAt: toDateOrNull(editExpiresAt),
                     renewAt: toDateOrNull(editRenewAt),
@@ -695,6 +720,11 @@ export default function Documents() {
                                     قالب
                                   </Badge>
                                 )}
+                                {!doc.isTemplate && doc.isSharedWithClient && (
+                                  <Badge variant="outline" className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20">
+                                    مشترك للعميل
+                                  </Badge>
+                                )}
                                 <span className="text-xs text-muted-foreground">{formatFileSize(doc.fileSize)}</span>
                                 <span className="text-xs text-muted-foreground flex items-center gap-1">
                                   <Calendar className="h-3 w-3" />
@@ -743,16 +773,30 @@ export default function Documents() {
                                     setEditExpiresAt(doc.expiresAt ? String(new Date(doc.expiresAt).toISOString().slice(0, 10)) : "");
                                     setEditRenewAt(doc.renewAt ? String(new Date(doc.renewAt).toISOString().slice(0, 10)) : "");
                                     setEditReminderDays(Number(doc.reminderDays ?? 30));
+                                    setEditIsSharedWithClient(Boolean(doc.isSharedWithClient));
                                     setIsEditOpen(true);
                                   }}
                                 >
                                   تعديل
                                 </DropdownMenuItem>
+                                {!doc.isTemplate && (
+                                  <DropdownMenuItem
+                                    onClick={() =>
+                                      updateDocument.mutate({
+                                        id: doc.id,
+                                        isSharedWithClient: !Boolean(doc.isSharedWithClient),
+                                      } as any)
+                                    }
+                                  >
+                                    {doc.isSharedWithClient ? "إلغاء مشاركة للعميل" : "مشاركة للعميل"}
+                                  </DropdownMenuItem>
+                                )}
                                 <DropdownMenuItem
                                   onClick={() =>
                                     updateDocument.mutate({
                                       id: doc.id,
                                       isTemplate: !Boolean(doc.isTemplate),
+                                      ...(doc.isTemplate ? {} : { isSharedWithClient: false }),
                                     } as any)
                                   }
                                 >

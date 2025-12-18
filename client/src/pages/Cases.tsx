@@ -203,7 +203,7 @@ export default function Cases() {
                       <SelectValue placeholder="اختر العميل" />
                     </SelectTrigger>
                     <SelectContent>
-                      {clients?.map((client) => (
+                      {clients?.map((client: any) => (
                         <SelectItem key={client.id} value={client.id.toString()}>
                           {client.name}
                         </SelectItem>
