@@ -23,6 +23,22 @@ export function registerOAuthRoutes(app: Express) {
     return process.env.NODE_ENV === "production" ? "https://mawazen.netlify.app" : "http://localhost:5173";
   };
 
+  const wantsHtml = (req: Request) => {
+    const accept = (req.get("accept") ?? "").toLowerCase();
+    return accept.includes("text/html");
+  };
+
+  const redirectWithError = (req: Request, res: Response, path: "/login" | "/signup", error: "email" | "phone") => {
+    const frontendOrigin = getFrontendOrigin(req);
+    const qs = new URLSearchParams();
+    qs.set("error", error);
+    if (path === "/signup") {
+      const mode = typeof req.body.mode === "string" ? req.body.mode : "";
+      if (mode === "trial" || mode === "pay") qs.set("mode", mode);
+    }
+    res.redirect(302, `${frontendOrigin}${path}?${qs.toString()}`);
+  };
+
   const getSafeRedirectPath = (req: Request) => {
     const redirect = typeof req.body.redirect === "string" ? req.body.redirect : "";
     return redirect.startsWith("/") ? redirect : "";
@@ -132,8 +148,15 @@ export function registerOAuthRoutes(app: Express) {
     
     try {
       const name = req.body.name || "مستخدم تجريبي";
-      const email = req.body.email || "test@example.com";
-      const openId = `local-${email.replace(/[^a-zA-Z0-9]/g, '')}`;
+      const email = typeof req.body.email === "string" && req.body.email.trim()
+        ? req.body.email.trim().toLowerCase()
+        : "test@example.com";
+
+      let openId = `local-${email.replace(/[^a-zA-Z0-9]/g, '')}`;
+      const existingByEmail = await db.getUserByEmail(email);
+      if (existingByEmail?.openId) {
+        openId = existingByEmail.openId;
+      }
 
       const testUserInfo = {
         openId,
@@ -167,6 +190,23 @@ export function registerOAuthRoutes(app: Express) {
       res.redirect(302, redirectUrl);
     } catch (error) {
       console.error("[Local Login] Login failed", error);
+      const errMsg = (error as any)?.message ?? "";
+      if (errMsg === "EMAIL_ALREADY_IN_USE") {
+        if (wantsHtml(req)) {
+          redirectWithError(req, res, "/login", "email");
+          return;
+        }
+        res.status(409).json({ error: "هذا البريد الإلكتروني مستخدم بالفعل." });
+        return;
+      }
+      if (errMsg === "PHONE_ALREADY_IN_USE") {
+        if (wantsHtml(req)) {
+          redirectWithError(req, res, "/login", "phone");
+          return;
+        }
+        res.status(409).json({ error: "هذا رقم الجوال مستخدم بالفعل." });
+        return;
+      }
       res.status(500).json({ error: "Login failed" });
     }
   });
@@ -176,8 +216,8 @@ export function registerOAuthRoutes(app: Express) {
 
     try {
       const name = req.body.name || "مستخدم تجريبي";
-      const email = req.body.email || "test@example.com";
-      const phone = typeof req.body.phone === "string" ? req.body.phone : undefined;
+      const email = typeof req.body.email === "string" && req.body.email.trim() ? req.body.email.trim().toLowerCase() : "test@example.com";
+      const phone = typeof req.body.phone === "string" ? req.body.phone.trim() : undefined;
       const requestedPlanRaw =
         (typeof req.body.plan === "string" ? req.body.plan : undefined) ||
         (typeof req.body.accountType === "string" ? req.body.accountType : undefined) ||
@@ -191,6 +231,29 @@ export function registerOAuthRoutes(app: Express) {
       const mode = req.body.mode === "pay" ? "pay" : "trial";
       const isActive = mode === "trial";
       const openId = `local-${email.replace(/[^a-zA-Z0-9]/g, '')}`;
+
+      const existingByEmail = await db.getUserByEmail(email);
+      if (existingByEmail) {
+        if (wantsHtml(req)) {
+          redirectWithError(req, res, "/signup", "email");
+          return;
+        }
+        res.status(409).json({ error: "هذا البريد الإلكتروني مستخدم بالفعل." });
+        return;
+      }
+
+      const normalizedPhone = typeof phone === "string" ? phone : "";
+      if (normalizedPhone) {
+        const existingByPhone = await db.getUserByPhone(normalizedPhone);
+        if (existingByPhone) {
+          if (wantsHtml(req)) {
+            redirectWithError(req, res, "/signup", "phone");
+            return;
+          }
+          res.status(409).json({ error: "هذا رقم الجوال مستخدم بالفعل." });
+          return;
+        }
+      }
 
       const organizationId = await db.createOrganization({
         name: (typeof req.body.lawFirm === "string" && req.body.lawFirm.trim()) ? req.body.lawFirm.trim() : name,
@@ -227,6 +290,23 @@ export function registerOAuthRoutes(app: Express) {
       res.redirect(302, redirectUrl);
     } catch (error) {
       console.error("[Local Signup] Signup failed", error);
+      const errMsg = (error as any)?.message ?? "";
+      if (errMsg === "EMAIL_ALREADY_IN_USE") {
+        if (wantsHtml(req)) {
+          redirectWithError(req, res, "/signup", "email");
+          return;
+        }
+        res.status(409).json({ error: "هذا البريد الإلكتروني مستخدم بالفعل." });
+        return;
+      }
+      if (errMsg === "PHONE_ALREADY_IN_USE") {
+        if (wantsHtml(req)) {
+          redirectWithError(req, res, "/signup", "phone");
+          return;
+        }
+        res.status(409).json({ error: "هذا رقم الجوال مستخدم بالفعل." });
+        return;
+      }
       res.status(500).json({ error: "Signup failed" });
     }
   });

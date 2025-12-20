@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { Scale, Sparkles, Eye, EyeOff, Mail, User, Shield } from "lucide-react";
 
@@ -6,12 +6,25 @@ export default function Login() {
   const [, setLocation] = useLocation();
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [serverError, setServerError] = useState<string>("");
   const backendOrigin = import.meta.env.VITE_BACKEND_ORIGIN ?? "";
   const [formData, setFormData] = useState({
     name: "",
     email: "",
     password: ""
   });
+
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const error = urlParams.get("error");
+    if (error === "email") {
+      setServerError("هذا البريد الإلكتروني مستخدم بالفعل.");
+    } else if (error === "phone") {
+      setServerError("هذا رقم الجوال مستخدم بالفعل.");
+    } else {
+      setServerError("");
+    }
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -57,6 +70,7 @@ export default function Login() {
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (serverError) setServerError("");
     setFormData({
       ...formData,
       [e.target.name]: e.target.value
@@ -90,6 +104,12 @@ export default function Login() {
               أدخل بياناتك للوصول إلى حسابك
             </p>
           </div>
+
+          {serverError ? (
+            <div className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+              {serverError}
+            </div>
+          ) : null}
           
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Name Field */}

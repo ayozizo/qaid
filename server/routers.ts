@@ -224,6 +224,21 @@ const SAUDI_LAW_SYSTEM_PROMPT = `أنت "موازين" - المساعد القا
    - صياغة مذكرات/لوائح/عقود/وكالات بصياغة احترافية عند الطلب
    - إبراز المخاطر والمتطلبات النظامية
 
+**أسلوب الإجابة (إلزامي):**
+- اكتب بأسلوب مهني حازم ومنظم (عقلية محامي سعودي قوي)، بدون مبالغة وبدون قطعيات غير مسندة.
+- استخدم عناوين واضحة داخل الإجابة حسب الحاجة:
+  1) الملخص التنفيذي
+  2) الوقائع/البيانات المطلوبة (إن وجدت)
+  3) التكييف النظامي العام
+  4) الإجراءات العملية والخطوات
+  5) المخاطر والملاحظات
+  6) المصادر
+- إذا كانت البيانات ناقصة أو السؤال عام جداً: اطرح 3-6 أسئلة توضيحية محددة قبل إعطاء نتيجة نهائية.
+
+**قاعدة صارمة لمنع الهبد:**
+- لا تذكر أرقام مواد أو تنقل نصوصاً أو تنسب أحكاماً/سوابق إلا إذا كانت ضمن (المقتطفات) التي ستأتيك في السياق.
+- إن لم تتوفر مقتطفات كافية: قدّم توجيهاً عاماً وإجراءات عملية، وصرّح بوضوح أن الاستناد النصي غير متاح حالياً واطلب تزويد معلومات أو تفعيل قاعدة المعرفة.
+
 **قواعد إلزامية للإجابة (مصادر/استشهاد/تمييز):**
 - لا تختلق مواد أو أرقام أو نصوص نظامية. إذا لم تتأكد من النص أو الرقم أو آخر تعديل فقل صراحةً إنك غير متأكد واقترح الرجوع للمصدر الرسمي.
 - اربط أي جواب قانوني — قدر الإمكان — بـ: (اسم النظام) و(رقم المادة/الفقرة) و(آخر تعديل إن كان معروفًا). إذا تعذر تحديد مادة بعينها، اذكر ذلك بوضوح.
@@ -2012,8 +2027,9 @@ export const appRouter = router({
           });
         }
 
+        let snippets: any[] = [];
         try {
-          const snippets = await retrieveLegalSnippets({ query: input.message, topK: 6, scanLimit: 600 });
+          snippets = await retrieveLegalSnippets({ query: input.message, topK: 8, scanLimit: 900 });
           if (snippets.length > 0) {
             messages.push({
               role: "system",
@@ -2024,10 +2040,18 @@ export const appRouter = router({
           console.warn("[AI] Retrieval failed", e);
         }
 
+        if (snippets.length === 0) {
+          messages.push({
+            role: "system",
+            content:
+              "تنبيه: لم يتم العثور على مقتطفات كافية من قاعدة المعرفة الرسمية لهذا السؤال. لا تذكر أرقام مواد ولا تنسب نصوصاً/سوابق. قدّم توجيهاً عاماً وخطوات عملية، ثم اطلب معلومات توضيحية أو اقترح تفعيل/تحديث قاعدة المعرفة الرسمية داخل النظام.",
+          });
+        }
+
         messages.push({
           role: "system",
           content:
-            "تعليمات إلزامية: عند ذكر نص نظامي أو مادة أو حكم أو لائحة، يجب أن تستند إلى المقتطفات أعلاه وتذكر الروابط في قسم بعنوان (المصادر) في نهاية الإجابة. إذا لم تتوفر مقتطفات كافية فلا تذكر أرقام مواد أو تنسب نصوصاً، واطلب معلومات إضافية أو صرّح بعدم توفر مصدر حالياً.",
+            "تعليمات إلزامية للإخراج: اختم دائماً بقسم بعنوان (المصادر). إذا لم تتوفر مصادر في المقتطفات فاكتب: (المصادر: غير متاحة حالياً داخل قاعدة المعرفة). عند توفر مقتطفات، اربط كل استشهاد برقم مقتطف مثل [1] ثم ضع رابط المصدر.",
         });
         
         // Add current message
@@ -2102,6 +2126,11 @@ export const appRouter = router({
         const messages: { role: "system" | "user"; content: string }[] = [
           { role: "system", content: SAUDI_LAW_SYSTEM_PROMPT },
           {
+            role: "system",
+            content:
+              "تعليمات إلزامية: لا تذكر سوابق/أحكام محددة ولا أرقام مواد إلا إذا كانت ضمن مقتطفات رسمية مقدمة لك في السياق. إن لم تتوفر مقتطفات، قدّم إطار عمل وتحليل منطقي وخطوات عملية واذكر أن الاستناد النصي غير متاح حالياً.",
+          },
+          {
             role: "user",
             content: `${analysisPrompts[input.analysisType]}
 
@@ -2117,6 +2146,19 @@ export const appRouter = router({
 - ملاحظات: ${caseData.notes || "لا توجد"}`,
           },
         ];
+
+        try {
+          const query = `${analysisPrompts[input.analysisType]} ${caseData.title} ${caseData.type} ${caseData.court ?? ""}`;
+          const snippets = await retrieveLegalSnippets({ query, topK: 6, scanLimit: 900 });
+          if (snippets.length > 0) {
+            messages.splice(1, 0, {
+              role: "system",
+              content: formatSnippetsForPrompt(snippets),
+            });
+          }
+        } catch (e) {
+          console.warn("[AI] Retrieval failed (analyzeCase)", e);
+        }
         
         const response = await invokeLLM({ messages });
         const rawAnalysis = response.choices[0]?.message?.content;
@@ -2267,23 +2309,40 @@ export const appRouter = router({
           });
         }
 
-        const normalizedEmail = (input.email ?? undefined)?.trim();
+        const normalizedEmail = typeof input.email === "string" ? input.email.trim().toLowerCase() : undefined;
         const openId = `org-${organizationId}-${nanoid(12)}`;
 
-        await db.upsertUser({
-          openId,
-          organizationId,
-          name: input.name,
-          email: normalizedEmail ?? null,
-          phone: input.phone ?? null,
-          loginMethod: "org",
-          role: input.role,
-          accountType: orgPlan,
-          subscriptionPlan: orgPlan,
-          seatLimit,
-          isActive: ctx.user.isActive,
-          lastSignedIn: new Date(),
-        });
+        try {
+          await db.upsertUser({
+            openId,
+            organizationId,
+            name: input.name,
+            email: normalizedEmail ?? null,
+            phone: input.phone ?? null,
+            loginMethod: "org",
+            role: input.role,
+            accountType: orgPlan,
+            subscriptionPlan: orgPlan,
+            seatLimit,
+            isActive: ctx.user.isActive,
+            lastSignedIn: new Date(),
+          });
+        } catch (error) {
+          const errMsg = (error as any)?.message ?? "";
+          if (errMsg === "EMAIL_ALREADY_IN_USE") {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "هذا البريد الإلكتروني مستخدم بالفعل.",
+            });
+          }
+          if (errMsg === "PHONE_ALREADY_IN_USE") {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "هذا رقم الجوال مستخدم بالفعل.",
+            });
+          }
+          throw error;
+        }
 
         return { success: true as const };
       }),

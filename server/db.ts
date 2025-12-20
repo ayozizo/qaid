@@ -1078,6 +1078,37 @@ export async function upsertUser(user: InsertUser): Promise<void> {
   const db = await getDb();
   if (!db) {
     console.warn("[Database] Using in-memory storage for user:", user.openId);
+    const normalizeOptional = (value: unknown) => {
+      if (value === undefined) return undefined;
+      if (value === null) return null;
+      if (typeof value === "string") {
+        const t = value.trim();
+        return t.length > 0 ? t : null;
+      }
+      return value as any;
+    };
+
+    const nextEmail = typeof user.email === "string" ? user.email.trim().toLowerCase() : normalizeOptional(user.email);
+    const nextPhone = normalizeOptional(user.phone);
+    if (typeof nextEmail === "string") {
+      for (const [openId, existing] of inMemoryUsers.entries()) {
+        if (openId === user.openId) continue;
+        const v = typeof existing?.email === "string" ? existing.email.trim() : "";
+        if (v && v.toLowerCase() === nextEmail) {
+          throw new Error("EMAIL_ALREADY_IN_USE");
+        }
+      }
+    }
+    if (typeof nextPhone === "string") {
+      for (const [openId, existing] of inMemoryUsers.entries()) {
+        if (openId === user.openId) continue;
+        const v = typeof existing?.phone === "string" ? existing.phone.trim() : "";
+        if (v && v === nextPhone) {
+          throw new Error("PHONE_ALREADY_IN_USE");
+        }
+      }
+    }
+
     // Use in-memory storage for local development
     const existingUser = inMemoryUsers.get(user.openId);
     const updatedUser = {
@@ -1100,8 +1131,18 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     const textFields = ["name", "email", "loginMethod", "phone", "avatarUrl", "specialty", "barNumber"] as const;
     type TextField = (typeof textFields)[number];
 
+    const normalizeTextField = (field: TextField, value: unknown) => {
+      if (value === undefined) return undefined;
+      if (value === null) return null;
+      if (typeof value !== "string") return value as any;
+      const trimmed = value.trim();
+      if ((field === "email" || field === "phone") && trimmed.length === 0) return null;
+      if (field === "email") return trimmed.toLowerCase();
+      return trimmed;
+    };
+
     const assignNullable = (field: TextField) => {
-      const value = user[field];
+      const value = normalizeTextField(field, user[field]);
       if (value === undefined) return;
       const normalized = value ?? null;
       values[field] = normalized;
@@ -1166,6 +1207,27 @@ export async function upsertUser(user: InsertUser): Promise<void> {
       updateSet.lastSignedIn = new Date();
     }
 
+    const nextEmail = typeof values.email === "string" ? values.email.trim().toLowerCase() : null;
+    const nextPhone = typeof values.phone === "string" ? values.phone.trim() : null;
+
+    if (nextEmail) {
+      const dup = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(and(sql`LOWER(${users.email}) = ${nextEmail}`, sql`${users.openId} <> ${user.openId}`))
+        .limit(1);
+      if (dup.length > 0) throw new Error("EMAIL_ALREADY_IN_USE");
+    }
+
+    if (nextPhone) {
+      const dup = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(and(eq(users.phone, nextPhone as any), sql`${users.openId} <> ${user.openId}`))
+        .limit(1);
+      if (dup.length > 0) throw new Error("PHONE_ALREADY_IN_USE");
+    }
+
     await db.insert(users).values(values).onDuplicateKeyUpdate({
       set: updateSet,
     });
@@ -1185,6 +1247,44 @@ export async function getUserByOpenId(openId: string) {
   const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
 
   return result.length > 0 ? result[0] : undefined;
+}
+
+export async function getUserByEmail(email: string) {
+  const normalized = (email ?? "").trim().toLowerCase();
+  if (!normalized) return undefined;
+
+  const db = await getDb();
+  if (!db) {
+    for (const u of inMemoryUsers.values()) {
+      const value = typeof u?.email === "string" ? u.email.trim() : "";
+      if (value && value.toLowerCase() === normalized.toLowerCase()) return u;
+    }
+    return undefined;
+  }
+
+  const rows = await db
+    .select()
+    .from(users)
+    .where(sql`LOWER(${users.email}) = ${normalized}`)
+    .limit(1);
+  return rows[0] ?? undefined;
+}
+
+export async function getUserByPhone(phone: string) {
+  const normalized = (phone ?? "").trim();
+  if (!normalized) return undefined;
+
+  const db = await getDb();
+  if (!db) {
+    for (const u of inMemoryUsers.values()) {
+      const value = typeof u?.phone === "string" ? u.phone.trim() : "";
+      if (value && value === normalized) return u;
+    }
+    return undefined;
+  }
+
+  const rows = await db.select().from(users).where(eq(users.phone, normalized as any)).limit(1);
+  return rows[0] ?? undefined;
 }
 
 export async function getUserById(userId: number) {

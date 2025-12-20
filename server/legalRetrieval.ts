@@ -84,7 +84,9 @@ export function formatSnippetsForPrompt(snippets: RetrievedLegalSnippet[]) {
   }
 
   const lines: string[] = [];
-  lines.push("مقتطفات من مصادر رسمية (لا تعتمد على أي معلومة خارج هذه المقتطفات عند ذكر مواد/نصوص):");
+  lines.push(
+    "مقتطفات من مصادر رسمية (قاعدة صارمة: عند ذكر مادة/نص/تاريخ/تعريف نظامي يجب أن يكون موجوداً حرفياً داخل مقتطف واحد على الأقل. عند الاستشهاد استخدم رقم المقتطف بين أقواس مربعة مثل [1] ثم ضع الروابط في قسم (المصادر).):"
+  );
 
   snippets.forEach((s, idx) => {
     const title = s.title ? ` | ${s.title}` : "";

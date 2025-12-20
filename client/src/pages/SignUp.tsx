@@ -7,6 +7,7 @@ export default function SignUp() {
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [signupMode, setSignupMode] = useState<"trial" | "pay">("trial");
+  const [serverError, setServerError] = useState<string>("");
   const backendOrigin = import.meta.env.VITE_BACKEND_ORIGIN ?? "";
   type AccountType = "individual" | "law_firm" | "enterprise";
   const planDetails: Record<AccountType, { name: string; features: string[] }> = {
@@ -55,6 +56,15 @@ export default function SignUp() {
     const mode = urlParams.get("mode");
     if (mode === "trial" || mode === "pay") {
       setSignupMode(mode);
+    }
+
+    const error = urlParams.get("error");
+    if (error === "email") {
+      setServerError("هذا البريد الإلكتروني مستخدم بالفعل.");
+    } else if (error === "phone") {
+      setServerError("هذا رقم الجوال مستخدم بالفعل.");
+    } else {
+      setServerError("");
     }
   }, []);
 
@@ -108,6 +118,7 @@ export default function SignUp() {
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (serverError) setServerError("");
     setFormData({
       ...formData,
       [e.target.name]: e.target.value
@@ -141,6 +152,12 @@ export default function SignUp() {
               ابدأ رحلتك مع نظام موازين لإدارة القضايا
             </p>
           </div>
+
+          {serverError ? (
+            <div className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+              {serverError}
+            </div>
+          ) : null}
 
           <div className="mb-4">
             <div className="flex gap-2">

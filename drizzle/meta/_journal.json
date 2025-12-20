@@ -57,6 +57,13 @@
       "when": 1766171000000,
       "tag": "0007_mawazin_legal_source_documents_longtext",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "5",
+      "when": 1766173000000,
+      "tag": "0008_mawazin_users_unique_email_phone",
+      "breakpoints": true
     }
   ]
 }
