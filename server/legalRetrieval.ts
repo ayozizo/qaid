@@ -135,12 +135,131 @@ function ordinalUnder100(n: number): string | null {
 
 function articleLabelBoeStyle(n: number): string | null {
   if (!Number.isFinite(n) || n <= 0) return null;
+  if (n < 100) return ordinalUnder100(n);
   if (n === 100) return "المائة";
   if (n > 100 && n < 200) {
     const under = ordinalUnder100(n - 100);
     if (!under) return null;
     return `${under} بعد المائة`;
   }
+  if (n === 200) return "المائتين";
+  if (n > 200 && n < 300) {
+    const under = ordinalUnder100(n - 200);
+    if (!under) return null;
+    return `${under} بعد المائتين`;
+  }
+  return null;
+}
+
+function toHostLabel(url: string): string {
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return "WEB";
+  }
+}
+
+function isAllowedWebFallbackHost(hostname: string): boolean {
+  const h = hostname.toLowerCase();
+  if (h === "laws.boe.gov.sa") return true;
+  if (h.endsWith(".boe.gov.sa")) return true;
+  if (h === "almrj3.com") return true;
+  if (h === "elmokhtarlaw.com") return true;
+  if (h === "saudi-lawyers.net") return true;
+  return false;
+}
+
+function extractDuckDuckGoResultUrls(html: string): string[] {
+  const urls: string[] = [];
+  for (const m of html.matchAll(/<a[^>]+class="result__a"[^>]+href="([^"]+)"/gi)) {
+    const href = (m[1] ?? "").trim();
+    if (!href) continue;
+    urls.push(href);
+    if (urls.length >= 5) break;
+  }
+  return urls;
+}
+
+async function webSearchArticleSnippet(params: { query: string; articleNumber: number }): Promise<RetrievedLegalSnippet | null> {
+  const q = String(params.query ?? "").trim();
+  if (!q) return null;
+  if (!/(نص\s*المادة|تنص\s*المادة|المادة\s*\d+)/.test(q)) return null;
+
+  const searchUrl = `https://duckduckgo.com/html/?q=${encodeURIComponent(q)}`;
+  try {
+    const res = await fetch(searchUrl, {
+      headers: {
+        accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "user-agent": ENV.legalCrawlerUserAgent,
+      },
+      redirect: "follow",
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+    const candidates = extractDuckDuckGoResultUrls(html);
+    for (const u of candidates) {
+      let host = "";
+      try {
+        host = new URL(u).hostname;
+      } catch {
+        continue;
+      }
+      if (!isAllowedWebFallbackHost(host)) continue;
+
+      const pageRes = await fetch(u, {
+        headers: {
+          accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "user-agent": ENV.legalCrawlerUserAgent,
+        },
+        redirect: "follow",
+      });
+      if (!pageRes.ok) continue;
+      const pageHtml = await pageRes.text();
+      const plain = pageHtml
+        .replace(/<script[\s\S]*?<\/script>/gi, " ")
+        .replace(/<style[\s\S]*?<\/style>/gi, " ")
+        .replace(/<\s*br\s*\/?\s*>/gi, "\n")
+        .replace(/<\s*\/?p\s*>/gi, "\n")
+        .replace(/<\s*\/?div\s*>/gi, "\n")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/&nbsp;/g, " ")
+        .replace(/&amp;/g, "&")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/\s+\n/g, "\n")
+        .replace(/\n\s+/g, "\n")
+        .replace(/\n{3,}/g, "\n\n")
+        .replace(/[\t\r]+/g, " ")
+        .replace(/ {2,}/g, " ")
+        .trim();
+
+      const n = params.articleNumber;
+      const boeLabel = articleLabelBoeStyle(n);
+      const patterns: RegExp[] = [];
+      if (boeLabel) {
+        const labelPattern = escapeRegex(boeLabel).replace(/\s+/g, "\\s+");
+        patterns.push(new RegExp(`المادة\\s+${labelPattern}\\s*:?([\\s\\S]*?)(?=\\n\\s*المادة\\s+|$)`));
+      }
+      patterns.push(new RegExp(`المادة\\s*${n}\\s*:?([\\s\\S]*?)(?=\\n\\s*المادة\\s+|$)`));
+
+      for (const re of patterns) {
+        const m = plain.match(re);
+        if (!m?.[0]) continue;
+        const snippetText = String(m[0]).trim().slice(0, 1600);
+        if (snippetText.length < 40) continue;
+        return {
+          text: snippetText,
+          score: 0.65,
+          source: toHostLabel(u),
+          url: u,
+          title: null,
+          meta: { law: "unknown", article: n },
+        };
+      }
+    }
+  } catch {
+  }
+
   return null;
 }
 
@@ -322,6 +441,11 @@ export async function retrieveLegalSnippets(params: {
   if (n !== null && (/نظام\s*العمل/.test(params.query) || /مكتب\s*العمل/.test(params.query))) {
     const live = await fetchBoeLaborArticleSnippet({ articleNumber: n });
     if (live) return [live];
+  }
+
+  if (n !== null) {
+    const web = await webSearchArticleSnippet({ query: params.query, articleNumber: n });
+    if (web) return [web];
   }
 
   return [];
