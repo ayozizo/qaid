@@ -2,6 +2,7 @@ import * as db from "./db";
 import { ENV } from "./_core/env";
 import { embedText } from "./legalEmbeddings";
 import axios from "axios";
+import https from "https";
 
 export type RetrievedLegalSnippet = {
   text: string;
@@ -18,26 +19,50 @@ type SimpleHttpResponse = {
   text: () => Promise<string>;
 };
 
+function isInsecureTlsAllowedForUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    if (host === "laws.boe.gov.sa" || host.endsWith(".boe.gov.sa")) return true;
+    if (host === "duckduckgo.com" || host.endsWith(".duckduckgo.com")) return true;
+    if (host === "www.googleapis.com") return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 async function httpGetText(url: string, headers: Record<string, string>): Promise<SimpleHttpResponse> {
   const f = (globalThis as any)?.fetch as
     | undefined
     | ((input: string, init?: { headers?: Record<string, string>; redirect?: "follow" | "manual" | "error" }) => Promise<any>);
 
   if (typeof f === "function") {
-    const res = await f(url, { headers, redirect: "follow" });
-    return {
-      ok: !!res?.ok,
-      status: Number(res?.status ?? 0),
-      text: async () => String(await res.text()),
-    };
+    try {
+      const res = await f(url, { headers, redirect: "follow" });
+      return {
+        ok: !!res?.ok,
+        status: Number(res?.status ?? 0),
+        text: async () => String(await res.text()),
+      };
+    } catch (e) {
+      if (ENV.legalRetrievalDebug) {
+        console.warn("[LegalRetrieval] fetch error", {
+          url,
+          message: e instanceof Error ? e.message : String(e),
+        });
+      }
+      // fall through to axios
+    }
   }
 
   try {
+    const insecure = ENV.legalRetrievalInsecureTls && isInsecureTlsAllowedForUrl(url);
     const res = await axios.get(url, {
       headers,
       maxRedirects: 5,
       timeout: 12000,
       responseType: "text",
+      httpsAgent: insecure ? new https.Agent({ rejectUnauthorized: false }) : undefined,
       validateStatus: () => true,
     });
     if (ENV.legalRetrievalDebug && !(res.status >= 200 && res.status < 300)) {
@@ -269,6 +294,113 @@ function extractDuckDuckGoResultUrls(html: string): string[] {
   }
 
   return urls;
+}
+
+function extractGoogleResultUrls(jsonText: string): string[] {
+  try {
+    const data = JSON.parse(jsonText) as any;
+    const items = Array.isArray(data?.items) ? data.items : [];
+    const urls: string[] = [];
+    for (const it of items) {
+      const link = typeof it?.link === "string" ? it.link.trim() : "";
+      if (!link) continue;
+      urls.push(link);
+      if (urls.length >= 8) break;
+    }
+    return urls;
+  } catch {
+    return [];
+  }
+}
+
+async function googleSearchArticleSnippet(params: { query: string; articleNumber: number }): Promise<RetrievedLegalSnippet | null> {
+  const q = String(params.query ?? "").trim();
+  if (!q) return null;
+  if (!/(نص\s*المادة|تنص\s*المادة|المادة\s*\d+)/.test(q)) return null;
+  if (!ENV.googleApiKey || !ENV.googleCseId) return null;
+
+  const n = params.articleNumber;
+  const boeLabel = articleLabelBoeStyle(n);
+  const expandedQuery =
+    n === 1
+      ? `نص المادة الأولى من نظام العمل تسري أحكام هذا النظام`
+      : boeLabel
+        ? `${q} المادة ${boeLabel} نظام العمل`
+        : q;
+
+  const apiUrl =
+    `https://www.googleapis.com/customsearch/v1?key=${encodeURIComponent(ENV.googleApiKey)}` +
+    `&cx=${encodeURIComponent(ENV.googleCseId)}` +
+    `&q=${encodeURIComponent(expandedQuery)}`;
+
+  try {
+    const res = await httpGetText(apiUrl, {
+      accept: "application/json,text/plain;q=0.9,*/*;q=0.8",
+      "user-agent": ENV.legalCrawlerUserAgent,
+    });
+    if (!res.ok) return null;
+    const jsonText = await res.text();
+    const candidates = extractGoogleResultUrls(jsonText);
+
+    for (const u of candidates) {
+      let host = "";
+      try {
+        host = new URL(u).hostname;
+      } catch {
+        continue;
+      }
+      if (!isAllowedWebFallbackHost(host)) continue;
+
+      const pageRes = await httpGetText(u, {
+        accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "user-agent": ENV.legalCrawlerUserAgent,
+      });
+      if (!pageRes.ok) continue;
+      const pageHtml = await pageRes.text();
+      const plain = pageHtml
+        .replace(/<script[\s\S]*?<\/script>/gi, " ")
+        .replace(/<style[\s\S]*?<\/style>/gi, " ")
+        .replace(/<\s*br\s*\/?\s*>/gi, "\n")
+        .replace(/<\s*\/?p\s*>/gi, "\n")
+        .replace(/<\s*\/?div\s*>/gi, "\n")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/&nbsp;/g, " ")
+        .replace(/&amp;/g, "&")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/\s+\n/g, "\n")
+        .replace(/\n\s+/g, "\n")
+        .replace(/\n{3,}/g, "\n\n")
+        .replace(/[\t\r]+/g, " ")
+        .replace(/ {2,}/g, " ")
+        .trim();
+
+      const patterns: RegExp[] = [];
+      if (boeLabel) {
+        const labelPattern = escapeRegex(boeLabel).replace(/\s+/g, "\\s+");
+        patterns.push(new RegExp(`المادة\\s+${labelPattern}\\s*:?([\\s\\S]*?)(?=\\n\\s*المادة\\s+|$)`));
+      }
+      patterns.push(new RegExp(`المادة\\s*${n}\\s*:?([\\s\\S]*?)(?=\\n\\s*المادة\\s+|$)`));
+
+      for (const re of patterns) {
+        const m = plain.match(re);
+        if (!m?.[0]) continue;
+        const snippetText = String(m[0]).trim().slice(0, 1600);
+        if (snippetText.length < 40) continue;
+        return {
+          text: snippetText,
+          score: 0.7,
+          source: toHostLabel(u),
+          url: u,
+          title: null,
+          meta: { law: "unknown", article: n },
+        };
+      }
+    }
+  } catch {
+  }
+
+  return null;
 }
 
 async function webSearchArticleSnippet(params: { query: string; articleNumber: number }): Promise<RetrievedLegalSnippet | null> {
@@ -542,6 +674,11 @@ export async function retrieveLegalSnippets(params: {
   if (n !== null && (/نظام\s*العمل/.test(params.query) || /مكتب\s*العمل/.test(params.query))) {
     const live = await fetchBoeLaborArticleSnippet({ articleNumber: n });
     if (live) return [live];
+  }
+
+  if (n !== null && ENV.googleApiKey.trim().length > 0 && ENV.googleCseId.trim().length > 0) {
+    const web = await googleSearchArticleSnippet({ query: params.query, articleNumber: n });
+    if (web) return [web];
   }
 
   if (n !== null) {
