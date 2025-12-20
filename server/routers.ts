@@ -2030,6 +2030,12 @@ export const appRouter = router({
         let snippets: any[] = [];
         try {
           snippets = await retrieveLegalSnippets({ query: input.message, topK: 8, scanLimit: 900 });
+          if (ENV.legalRetrievalDebug) {
+            console.log("[AI] Retrieval debug", {
+              snippetsLength: Array.isArray(snippets) ? snippets.length : 0,
+              firstUrl: Array.isArray(snippets) && snippets[0]?.url ? String(snippets[0].url) : null,
+            });
+          }
           if (snippets.length > 0) {
             messages.push({
               role: "system",
@@ -2049,6 +2055,13 @@ export const appRouter = router({
           /(نص\s*المادة|تنص\s*المادة|المادة\s*\d+)/.test(normalizedMsg) &&
           /\d{1,4}/.test(normalizedMsg) &&
           !/(شرح|فسر|وضّح|وضح|ملخص|تلخيص|تحليل)/.test(normalizedMsg);
+
+        if (ENV.legalRetrievalDebug) {
+          console.log("[AI] Verbatim detection", {
+            wantsVerbatimArticleText,
+            normalizedMsg,
+          });
+        }
 
         if (snippets.length > 0 && wantsVerbatimArticleText) {
           const best = (snippets as any[])

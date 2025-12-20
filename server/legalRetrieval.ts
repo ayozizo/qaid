@@ -40,12 +40,21 @@ async function httpGetText(url: string, headers: Record<string, string>): Promis
       responseType: "text",
       validateStatus: () => true,
     });
+    if (ENV.legalRetrievalDebug && !(res.status >= 200 && res.status < 300)) {
+      console.warn("[LegalRetrieval] HTTP non-2xx", { url, status: res.status });
+    }
     return {
       ok: res.status >= 200 && res.status < 300,
       status: res.status,
       text: async () => String(res.data ?? ""),
     };
-  } catch {
+  } catch (e) {
+    if (ENV.legalRetrievalDebug) {
+      console.warn("[LegalRetrieval] HTTP error", {
+        url,
+        message: e instanceof Error ? e.message : String(e),
+      });
+    }
     return {
       ok: false,
       status: 0,
@@ -387,6 +396,18 @@ function scoreTextByTerms(text: string, terms: string[]) {
 const BOE_LABOR_LAW_URL = "https://laws.boe.gov.sa/BoeLaws/Laws/LawDetails/08381293-6388-48e2-8ad2-a9a700f2aa94/1";
 
 function getStaticBoeLaborLawSnippet(articleNumber: number): RetrievedLegalSnippet | null {
+  if (articleNumber === 1) {
+    const text = "المادة الأولى :\nيسمى هذا النظام نظام العمل.";
+    return {
+      text,
+      score: 0.95,
+      source: "BOE (cached)",
+      url: BOE_LABOR_LAW_URL,
+      title: "نظام العمل",
+      meta: { law: "labor_law", article: 1 },
+    };
+  }
+
   if (articleNumber !== 107) return null;
 
   const text =
