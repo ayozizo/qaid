@@ -2040,6 +2040,53 @@ export const appRouter = router({
           console.warn("[AI] Retrieval failed", e);
         }
 
+        const normalizedMsg = input.message
+          .replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)))
+          .replace(/\s+/g, " ")
+          .trim();
+
+        const wantsVerbatimArticleText =
+          /(نص\s*المادة|تنص\s*المادة|المادة\s*\d+)/.test(normalizedMsg) &&
+          /\d{1,4}/.test(normalizedMsg) &&
+          !/(شرح|فسر|وضّح|وضح|ملخص|تلخيص|تحليل)/.test(normalizedMsg);
+
+        if (snippets.length > 0 && wantsVerbatimArticleText) {
+          const best = (snippets as any[])
+            .map((s) => ({
+              s,
+              score: typeof s?.score === "number" ? s.score : 0,
+              hasText: typeof s?.text === "string" && s.text.trim().length > 0,
+              hasUrl: typeof s?.url === "string" && s.url.trim().length > 0,
+            }))
+            .filter((x) => x.hasText && x.hasUrl)
+            .sort((a, b) => b.score - a.score)[0]?.s;
+
+          if (best?.text && best?.url) {
+            const assistantMessage = `${String(best.text).trim()}\n\n(المصادر)\n- ${String(best.url).trim()}`;
+
+            await db.createAiChatMessage({
+              userId: ctx.user.id,
+              sessionId,
+              caseId: input.caseId ?? null,
+              role: "assistant",
+              content: assistantMessage,
+            });
+
+            return {
+              sessionId,
+              message: assistantMessage,
+            };
+          }
+        }
+
+        if (snippets.length > 0 && wantsVerbatimArticleText) {
+          messages.push({
+            role: "system",
+            content:
+              "قاعدة إلزامية: إذا طلب المستخدم (نص المادة رقم X) فاطبع نص المادة حرفياً فقط كما ورد داخل المقتطفات (بدون أي شرح أو تفصيل أو إعادة صياغة). لا تضف مقدمات ولا تعليقات. بعد النص ضع قسم (المصادر) وروابط المقتطفات المستخدمة فقط.",
+          });
+        }
+
         if (snippets.length === 0) {
           messages.push({
             role: "system",

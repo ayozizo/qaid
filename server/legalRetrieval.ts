@@ -194,7 +194,7 @@ function getStaticBoeLaborLawSnippet(articleNumber: number): RetrievedLegalSnipp
   return {
     text,
     score: 0.94,
-    source: "BOE",
+    source: "BOE (cached)",
     url: BOE_LABOR_LAW_URL,
     title: "نظام العمل",
     meta: { law: "labor_law", article: 107 },

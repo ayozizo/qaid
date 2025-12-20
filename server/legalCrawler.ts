@@ -46,6 +46,14 @@ function extractLinksFromHtml(html: string, baseUrl: string): string[] {
       if (u.pathname.startsWith("/Identity/")) continue;
       if (u.pathname.startsWith("/admin/")) continue;
 
+      const isBoe = u.hostname.toLowerCase() === "laws.boe.gov.sa";
+      if (isBoe) {
+        if (!u.pathname.startsWith("/BoeLaws/Laws/LawDetails/") && !u.pathname.startsWith("/BoeLaws/Laws/Folders/")) {
+          continue;
+        }
+        if (u.pathname.startsWith("/BoeLaws/Laws/Viewer/")) continue;
+      }
+
       out.push(u.toString());
     } catch {
       continue;
@@ -125,6 +133,38 @@ function chunkText(text: string, opts?: { maxChars?: number; overlapChars?: numb
 
   const clean = text.replace(/\s{2,}/g, " ").trim();
   if (!clean) return [] as string[];
+
+  const articleHeadingRe = /(^|\n)\s*المادة\s+[^\n:]{1,80}\s*:?/g;
+  const matches = Array.from(clean.matchAll(articleHeadingRe));
+  if (matches.length >= 3) {
+    const starts: number[] = matches
+      .map((m) => (typeof m.index === "number" ? m.index : -1))
+      .filter((i) => i >= 0)
+      .sort((a, b) => a - b);
+
+    const out: string[] = [];
+    for (let i = 0; i < starts.length; i++) {
+      const s = starts[i]!;
+      const e = i + 1 < starts.length ? starts[i + 1]! : clean.length;
+      const seg = clean.slice(s, e).trim();
+      if (!seg) continue;
+      if (seg.length <= maxChars) {
+        out.push(seg);
+        continue;
+      }
+
+      let start = 0;
+      while (start < seg.length) {
+        const end = Math.min(start + maxChars, seg.length);
+        const slice = seg.slice(start, end).trim();
+        if (slice.length > 0) out.push(slice);
+        if (end >= seg.length) break;
+        start = Math.max(0, end - overlapChars);
+      }
+    }
+
+    if (out.length > 0) return out;
+  }
 
   const chunks: string[] = [];
   let start = 0;
@@ -219,7 +259,10 @@ export async function runLegalCrawlerOnce(params?: { seedSitemaps?: string[]; fo
   const effectiveSeeds =
     seedSitemaps && seedSitemaps.length > 0
       ? seedSitemaps
-      : ["https://laws.boe.gov.sa/BoeLaws/Laws/LawDetails/08381293-6388-48e2-8ad2-a9a700f2aa94/1"];
+      : [
+          "https://laws.boe.gov.sa/BoeLaws/Laws/Folders/1",
+          "https://laws.boe.gov.sa/BoeLaws/Laws/LawDetails/08381293-6388-48e2-8ad2-a9a700f2aa94/1",
+        ];
 
   const embeddingsEnabled = !!(ENV.openaiApiKey && ENV.openaiApiKey.trim().length > 0);
 
@@ -282,6 +325,15 @@ export async function runLegalCrawlerOnce(params?: { seedSitemaps?: string[]; fo
       const source = inferSource(url);
       const contentHash = result.text ? sha256Hex(result.text) : null;
 
+      let isDiscoveryOnly = false;
+      try {
+        const u = new URL(url);
+        if (u.hostname.toLowerCase() === "laws.boe.gov.sa" && u.pathname.startsWith("/BoeLaws/Laws/Folders/")) {
+          isDiscoveryOnly = true;
+        }
+      } catch {
+      }
+
       const raw = (result.rawBody ?? result.text ?? "").trim();
       const isSitemapXml =
         /sitemap/i.test(url) &&
@@ -312,17 +364,17 @@ export async function runLegalCrawlerOnce(params?: { seedSitemaps?: string[]; fo
         source,
         url,
         title: result.title,
-        contentText: isSitemapXml ? null : result.text,
-        contentHash: isSitemapXml ? null : contentHash,
+        contentText: isSitemapXml || isDiscoveryOnly ? null : result.text,
+        contentHash: isSitemapXml || isDiscoveryOnly ? null : contentHash,
         httpStatus: result.status ?? null,
         etag: result.etag,
         lastModified: result.lastModified,
         fetchedAt: new Date(),
-        status: isSitemapXml ? "skipped" : result.error ? "error" : "ok",
-        error: isSitemapXml ? null : result.error,
+        status: isSitemapXml || isDiscoveryOnly ? "skipped" : result.error ? "error" : "ok",
+        error: isSitemapXml || isDiscoveryOnly ? null : result.error,
       } as any);
 
-      if (!isSitemapXml && !result.error && result.text && result.text.length > 100) {
+      if (!isSitemapXml && !isDiscoveryOnly && !result.error && result.text && result.text.length > 100) {
         const chunks = chunkText(result.text);
         let embeddings: number[][] | null = null;
         if (embeddingsEnabled) {
