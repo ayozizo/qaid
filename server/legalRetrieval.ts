@@ -206,20 +206,59 @@ function isAllowedWebFallbackHost(hostname: string): boolean {
   const h = hostname.toLowerCase();
   if (h === "laws.boe.gov.sa") return true;
   if (h.endsWith(".boe.gov.sa")) return true;
-  if (h === "almrj3.com") return true;
-  if (h === "elmokhtarlaw.com") return true;
-  if (h === "saudi-lawyers.net") return true;
+  if (h === "almrj3.com" || h.endsWith(".almrj3.com")) return true;
+  if (h === "elmokhtarlaw.com" || h.endsWith(".elmokhtarlaw.com")) return true;
+  if (h === "saudi-lawyers.net" || h.endsWith(".saudi-lawyers.net")) return true;
   return false;
 }
 
 function extractDuckDuckGoResultUrls(html: string): string[] {
   const urls: string[] = [];
-  for (const m of html.matchAll(/<a[^>]+class="result__a"[^>]+href="([^"]+)"/gi)) {
-    const href = (m[1] ?? "").trim();
-    if (!href) continue;
-    urls.push(href);
-    if (urls.length >= 5) break;
+  const seen = new Set<string>();
+
+  const patterns: RegExp[] = [
+    // class before href
+    /<a[^>]+class=(?:"|')([^"']*\bresult__a\b[^"']*)(?:"|')[^>]+href=(?:"|')([^"']+)(?:"|')/gi,
+    // href before class
+    /<a[^>]+href=(?:"|')([^"']+)(?:"|')[^>]+class=(?:"|')([^"']*\bresult__a\b[^"']*)(?:"|')/gi,
+  ];
+
+  const rawHrefs: string[] = [];
+  for (const re of patterns) {
+    for (const m of html.matchAll(re)) {
+      // Depending on pattern, href may be group 1 or 2
+      const href = (m[2] ?? m[1] ?? "").trim();
+      if (href) rawHrefs.push(href);
+    }
   }
+
+  for (let href of rawHrefs) {
+    href = href.trim();
+    if (!href) continue;
+    href = href.replace(/&amp;/g, "&");
+
+    // Normalize scheme/relative links
+    if (href.startsWith("//")) href = `https:${href}`;
+    if (href.startsWith("/")) href = `https://duckduckgo.com${href}`;
+
+    // DuckDuckGo often wraps outbound links in /l/?uddg=<encoded>
+    try {
+      const u = new URL(href);
+      if (u.hostname.endsWith("duckduckgo.com") && u.pathname.startsWith("/l/")) {
+        const uddg = u.searchParams.get("uddg");
+        if (uddg) href = decodeURIComponent(uddg);
+      }
+    } catch {
+      // keep original
+    }
+
+    if (!href) continue;
+    if (seen.has(href)) continue;
+    seen.add(href);
+    urls.push(href);
+    if (urls.length >= 15) break;
+  }
+
   return urls;
 }
 
@@ -228,7 +267,16 @@ async function webSearchArticleSnippet(params: { query: string; articleNumber: n
   if (!q) return null;
   if (!/(نص\s*المادة|تنص\s*المادة|المادة\s*\d+)/.test(q)) return null;
 
-  const searchUrl = `https://duckduckgo.com/html/?q=${encodeURIComponent(q)}`;
+  const n = params.articleNumber;
+  const boeLabel = articleLabelBoeStyle(n);
+  const expandedQuery =
+    n === 1
+      ? `نص المادة الأولى من نظام العمل تسري أحكام هذا النظام`
+      : boeLabel
+        ? `${q} المادة ${boeLabel} نظام العمل`
+        : q;
+
+  const searchUrl = `https://duckduckgo.com/html/?q=${encodeURIComponent(expandedQuery)}`;
   try {
     const res = await httpGetText(searchUrl, {
       accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -270,8 +318,6 @@ async function webSearchArticleSnippet(params: { query: string; articleNumber: n
         .replace(/ {2,}/g, " ")
         .trim();
 
-      const n = params.articleNumber;
-      const boeLabel = articleLabelBoeStyle(n);
       const patterns: RegExp[] = [];
       if (boeLabel) {
         const labelPattern = escapeRegex(boeLabel).replace(/\s+/g, "\\s+");
