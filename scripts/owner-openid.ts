@@ -99,7 +99,7 @@ async function main() {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl || !isValidMysqlUrl(databaseUrl)) {
     throw new Error(
-      `DATABASE_URL is missing or invalid.\n` +
+      `mysql://root:ButIzSBgQLgSgvOqanvufbwsBTmmOrkQ@turntable.proxy.rlwy.net:35001/railway` +
         `- If you already have a real DATABASE_URL, export it in your shell or put it in ${envPath}\n` +
         `- Your .env may contain a placeholder DATABASE_URL like mysql://username:password@host:port/database which is ignored by this script.`
     );

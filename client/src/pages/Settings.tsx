@@ -6,6 +6,14 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { useTheme } from "@/contexts/ThemeContext";
+import {
   Settings as SettingsIcon,
   Bell,
   Shield,
@@ -19,6 +27,8 @@ import {
 import { toast } from "sonner";
 
 export default function Settings() {
+  const { theme, setTheme, palette, setPalette, palettes, switchable } = useTheme();
+
   const handleSave = () => {
     toast.success("تم حفظ الإعدادات بنجاح");
   };
@@ -192,8 +202,37 @@ export default function Settings() {
               <CardContent className="space-y-4">
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-foreground">الوضع الداكن</span>
-                  <Switch defaultChecked />
+                  <Switch
+                    checked={theme === "dark"}
+                    onCheckedChange={checked => {
+                      setTheme?.(checked ? "dark" : "light");
+                    }}
+                    disabled={!switchable || !setTheme}
+                  />
                 </div>
+
+                <div className="space-y-2">
+                  <Label>ثيم الألوان</Label>
+                  <Select
+                    value={palette}
+                    onValueChange={value => {
+                      setPalette?.(value as typeof palette);
+                    }}
+                    disabled={!switchable || !setPalette}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="اختر الثيم" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {palettes.map(p => (
+                        <SelectItem key={p} value={p}>
+                          {p}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-foreground">تأثيرات الحركة</span>
                   <Switch defaultChecked />
