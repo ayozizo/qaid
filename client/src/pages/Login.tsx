@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
-import { Scale, Sparkles, Eye, EyeOff, Mail, User, Shield } from "lucide-react";
+import { Scale, Sparkles, Eye, EyeOff, Mail, User, Shield, Chrome } from "lucide-react";
 
 export default function Login() {
   const [, setLocation] = useLocation();
@@ -103,6 +103,21 @@ export default function Login() {
             <p className="text-muted-foreground text-sm mt-2">
               أدخل بياناتك للوصول إلى حسابك
             </p>
+          </div>
+
+          <div className="mb-4">
+            <button
+              type="button"
+              onClick={() => {
+                const base = backendOrigin || "";
+                const redirect = encodeURIComponent("/dashboard");
+                window.location.href = `${base}/api/oauth/google?redirect=${redirect}`;
+              }}
+              className="w-full border border-border/60 hover:border-gold/50 bg-transparent text-foreground font-semibold py-3 rounded-lg flex items-center justify-center gap-2"
+            >
+              <Chrome className="h-4 w-4" />
+              متابعة باستخدام Google
+            </button>
           </div>
 
           {serverError ? (

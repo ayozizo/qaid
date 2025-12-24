@@ -3,6 +3,7 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, ownerProcedure, publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { z } from "zod";
+import axios from "axios";
 import { invokeLLM } from "./_core/llm";
 import { nanoid } from "nanoid";
 import { TRPCError } from "@trpc/server";
@@ -64,7 +65,7 @@ async function assertToolAccess(params: {
     throw new TRPCError({
       code: "FORBIDDEN",
       message:
-        "يتطلب استخدام الأدوات الذكية اشتراكاً شهرياً فعالاً. يرجى الانتقال إلى صفحة المدفوعات لتجديد الاشتراك.",
+        "يتطلب استخدام الأدوات الذكية اشتراكاً سنوياً فعالاً. يرجى الانتقال إلى صفحة المدفوعات لتجديد الاشتراك.",
     });
   }
 
@@ -1092,6 +1093,123 @@ export const appRouter = router({
           plan: normalizedPlan,
         };
       }),
+
+    activatePaid: protectedProcedure
+      .input(
+        z.object({
+          plan: z.enum(["individual", "law_firm", "enterprise"]),
+          paymentId: z.string().min(10).max(128),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        if (!ENV.moyasarSecretKey) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "بوابة الدفع غير مهيأة حالياً. يرجى التواصل مع الدعم.",
+          });
+        }
+
+        const expectedAmount =
+          input.plan === "enterprise" ? 8999 * 100 : input.plan === "law_firm" ? 4599 * 100 : 1549 * 100;
+
+        type MoyasarPayment = {
+          id: string;
+          status: string;
+          amount: number;
+          currency: string;
+          description?: string | null;
+          metadata?: Record<string, string> | null;
+          source?: any;
+        };
+
+        let payment: MoyasarPayment;
+        try {
+          const { data } = await axios.get<MoyasarPayment>(
+            `https://api.moyasar.com/v1/payments/${encodeURIComponent(input.paymentId)}`,
+            {
+              auth: {
+                username: ENV.moyasarSecretKey,
+                password: "",
+              },
+              timeout: 15_000,
+            }
+          );
+          payment = data;
+        } catch (e: any) {
+          const status = e?.response?.status;
+          if (status === 401 || status === 403) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: "تعذر الاتصال ببوابة الدفع. تحقق من مفاتيح Moyasar.",
+            });
+          }
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "تعذر التحقق من عملية الدفع.",
+          });
+        }
+
+        if (!payment?.id || payment.id !== input.paymentId) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "معرف الدفع غير صالح." });
+        }
+
+        const okStatus = payment.status === "paid" || payment.status === "captured";
+        if (!okStatus) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "حالة الدفع غير مكتملة.",
+          });
+        }
+
+        if (payment.currency !== "SAR") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "عملة الدفع غير صحيحة.",
+          });
+        }
+
+        if (payment.amount !== expectedAmount) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "مبلغ الدفع غير مطابق للخطة المختارة.",
+          });
+        }
+
+        const paidPlanFromMeta = (payment.metadata?.plan ?? "").trim();
+        if (paidPlanFromMeta && paidPlanFromMeta !== input.plan) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "الخطة في بيانات الدفع لا تطابق الخطة المطلوبة.",
+          });
+        }
+
+        const seatLimit = input.plan === "enterprise" ? 15 : input.plan === "law_firm" ? 5 : 1;
+
+        const organizationId = await db.ensureUserHasOrganization({
+          openId: ctx.user.openId,
+          defaultOrganizationName: ctx.user.name ?? null,
+        });
+
+        await db.setOrganizationSubscriptionPlan({
+          organizationId,
+          subscriptionPlan: input.plan,
+          seatLimit,
+        });
+
+        await db.setUserActive(ctx.user.id, true);
+        await db.setUserSubscriptionPlan({
+          userId: ctx.user.id,
+          subscriptionPlan: input.plan,
+          accountType: input.plan,
+          seatLimit,
+        });
+
+        return {
+          success: true as const,
+          plan: input.plan,
+          paymentId: payment.id,
+        };
+      }),
   }),
 
   // ==================== DASHBOARD ====================
@@ -1968,7 +2086,7 @@ export const appRouter = router({
           throw new TRPCError({
             code: "FORBIDDEN",
             message:
-              "يتطلب استخدام المساعد القانوني الذكي اشتراكاً شهرياً فعالاً. يرجى الانتقال إلى صفحة المدفوعات لتجديد الاشتراك.",
+              "يتطلب استخدام المساعد القانوني الذكي اشتراكاً سنوياً فعالاً. يرجى الانتقال إلى صفحة المدفوعات لتجديد الاشتراك.",
           });
         }
 
@@ -2166,7 +2284,7 @@ export const appRouter = router({
           throw new TRPCError({
             code: "FORBIDDEN",
             message:
-              "يتطلب استخدام أدوات التحليل الذكية اشتراكاً شهرياً فعالاً. يرجى الانتقال إلى صفحة المدفوعات لتجديد الاشتراك.",
+              "يتطلب استخدام أدوات التحليل الذكية اشتراكاً سنوياً فعالاً. يرجى الانتقال إلى صفحة المدفوعات لتجديد الاشتراك.",
           });
         }
 

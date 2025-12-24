@@ -1,7 +1,9 @@
 import { ONE_YEAR_MS } from "@shared/const";
 import type { Express, Request, Response } from "express";
+import axios from "axios";
 import * as db from "../db";
 import { sdk } from "./sdk";
+import { ENV } from "./env";
 
 export function registerOAuthRoutes(app: Express) {
   const getFrontendOrigin = (req: Request) => {
@@ -43,6 +45,133 @@ export function registerOAuthRoutes(app: Express) {
     const redirect = typeof req.body.redirect === "string" ? req.body.redirect : "";
     return redirect.startsWith("/") ? redirect : "";
   };
+
+  const getBackendOrigin = (req: Request) => {
+    const fromEnv = (ENV.backendUrl ?? "").trim();
+    if (fromEnv) return fromEnv.replace(/\/+$/, "");
+    return `${req.protocol}://${req.get("host")}`;
+  };
+
+  const encodeState = (value: unknown) => {
+    return Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
+  };
+
+  const decodeState = (value: string) => {
+    try {
+      return JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as any;
+    } catch {
+      return null;
+    }
+  };
+
+  app.get("/api/oauth/google", async (req: Request, res: Response) => {
+    if (!ENV.googleOAuthClientId || !ENV.googleOAuthClientSecret) {
+      res.status(500).send("Google OAuth is not configured");
+      return;
+    }
+
+    const redirect = typeof req.query.redirect === "string" ? req.query.redirect : "";
+    const safeRedirect = redirect.startsWith("/") ? redirect : "";
+
+    const backendOrigin = getBackendOrigin(req);
+    const redirectUri = `${backendOrigin}/api/oauth/google/callback`;
+    const state = encodeState({ redirect: safeRedirect });
+
+    const params = new URLSearchParams();
+    params.set("client_id", ENV.googleOAuthClientId);
+    params.set("redirect_uri", redirectUri);
+    params.set("response_type", "code");
+    params.set("scope", "openid email profile");
+    params.set("state", state);
+    params.set("prompt", "select_account");
+
+    res.redirect(302, `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
+  });
+
+  app.get("/api/oauth/google/callback", async (req: Request, res: Response) => {
+    const code = typeof req.query.code === "string" ? req.query.code : "";
+    const stateRaw = typeof req.query.state === "string" ? req.query.state : "";
+    const error = typeof req.query.error === "string" ? req.query.error : "";
+    const state = stateRaw ? decodeState(stateRaw) : null;
+    const safeRedirect = typeof state?.redirect === "string" && state.redirect.startsWith("/") ? state.redirect : "";
+
+    if (error) {
+      const frontendOrigin = getFrontendOrigin(req);
+      res.redirect(302, `${frontendOrigin}/login`);
+      return;
+    }
+
+    if (!code || !ENV.googleOAuthClientId || !ENV.googleOAuthClientSecret) {
+      const frontendOrigin = getFrontendOrigin(req);
+      res.redirect(302, `${frontendOrigin}/login`);
+      return;
+    }
+
+    try {
+      const backendOrigin = getBackendOrigin(req);
+      const redirectUri = `${backendOrigin}/api/oauth/google/callback`;
+
+      const tokenParams = new URLSearchParams();
+      tokenParams.set("code", code);
+      tokenParams.set("client_id", ENV.googleOAuthClientId);
+      tokenParams.set("client_secret", ENV.googleOAuthClientSecret);
+      tokenParams.set("redirect_uri", redirectUri);
+      tokenParams.set("grant_type", "authorization_code");
+
+      const tokenRes = await axios.post(
+        "https://oauth2.googleapis.com/token",
+        tokenParams.toString(),
+        {
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          timeout: 15_000,
+        }
+      );
+
+      const accessToken = String(tokenRes.data?.access_token ?? "");
+      const idToken = String(tokenRes.data?.id_token ?? "");
+      if (!accessToken || !idToken) throw new Error("Missing Google tokens");
+
+      const userInfoRes = await axios.get("https://www.googleapis.com/oauth2/v3/userinfo", {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        timeout: 15_000,
+      });
+
+      const sub = String(userInfoRes.data?.sub ?? "");
+      const name = String(userInfoRes.data?.name ?? "").trim() || null;
+      const email = String(userInfoRes.data?.email ?? "").trim().toLowerCase() || null;
+      const avatarUrl = String(userInfoRes.data?.picture ?? "").trim() || null;
+      if (!sub) throw new Error("Missing Google user id");
+
+      const existingByEmail = email ? await db.getUserByEmail(email) : undefined;
+      const openId = existingByEmail?.openId ?? `google-${sub}`;
+
+      await db.upsertUser({
+        openId,
+        name,
+        email,
+        avatarUrl,
+        loginMethod: "google",
+        lastSignedIn: new Date(),
+      });
+
+      await db.ensureUserHasOrganization({
+        openId,
+        defaultOrganizationName: name,
+      });
+
+      const sessionToken = await sdk.createSessionToken(openId, {
+        name: name ?? "",
+        expiresInMs: ONE_YEAR_MS,
+      });
+
+      const frontendOrigin = getFrontendOrigin(req);
+      const redirectQuery = safeRedirect ? `&redirect=${encodeURIComponent(safeRedirect)}` : "";
+      res.redirect(302, `${frontendOrigin}?token=${sessionToken}${redirectQuery}`);
+    } catch (e) {
+      const frontendOrigin = getFrontendOrigin(req);
+      res.redirect(302, `${frontendOrigin}/login`);
+    }
+  });
 
   // Simple login form for all environments
   app.get("/api/local-login", (req: Request, res: Response) => {

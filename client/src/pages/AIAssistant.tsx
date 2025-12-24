@@ -146,12 +146,11 @@ export default function AIAssistant() {
         error instanceof TRPCClientError &&
         error.data?.code === "FORBIDDEN"
       ) {
-        setMessages((prev) => [
-          ...prev,
+        setMessages([
           {
             role: "assistant",
             content:
-              "لا يمكنك استخدام المساعد حالياً لأن اشتراكك الشهري غير فعّال. يرجى الانتقال إلى صفحة المدفوعات لتجديد الاشتراك.",
+              "لا يمكنك استخدام المساعد حالياً لأن اشتراكك السنوي غير فعّال. يرجى الانتقال إلى صفحة المدفوعات لتجديد الاشتراك.",
           },
         ]);
         setIsLoading(false);

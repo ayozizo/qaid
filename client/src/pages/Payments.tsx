@@ -6,15 +6,21 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import {
   CreditCard,
-  Smartphone,
   DollarSign,
   CheckCircle2,
   ArrowRight,
   Download,
 } from "lucide-react";
 import DashboardLayout from "@/components/DashboardLayout";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { trpc } from "@/lib/trpc";
+import { useLocation } from "wouter";
+
+declare global {
+  interface Window {
+    Moyasar?: any;
+  }
+}
 
 const getPlanFromUrl = (): SubscriptionPlanId | null => {
   if (typeof window === "undefined") return null;
@@ -48,8 +54,8 @@ const subscriptionPlans = [
   {
     id: "individual" as const,
     name: "فردي",
-    price: 39,
-    period: "شهرياً",
+    price: 1549,
+    period: "سنوياً",
     description: "مناسب للمستخدم الفردي لإدارة القضايا والاستفادة من المساعد القانوني.",
     features: [
       "عدد المستخدمين: 1",
@@ -61,8 +67,8 @@ const subscriptionPlans = [
   {
     id: "law_firm" as const,
     name: "مكتب محاماة",
-    price: 39,
-    period: "شهرياً",
+    price: 4599,
+    period: "سنوياً",
     description: "مناسب للمكاتب الصغيرة والمتوسطة مع فريق عمل.",
     features: [
       "عدد المستخدمين: 5",
@@ -75,8 +81,8 @@ const subscriptionPlans = [
   {
     id: "enterprise" as const,
     name: "منشأة",
-    price: 39,
-    period: "شهرياً",
+    price: 8999,
+    period: "سنوياً",
     description: "مناسب للمنشآت القانونية والإدارات ذات الحجم الأكبر.",
     features: [
       "عدد المستخدمين: 15",
@@ -91,11 +97,21 @@ const subscriptionPlans = [
 type SubscriptionPlanId = (typeof subscriptionPlans)[number]["id"];
 
 export default function Payments() {
-  const [selectedGateway, setSelectedGateway] = useState<"stripe" | "stc" | null>(null);
+  const [, setLocation] = useLocation();
+  const [selectedGateway, setSelectedGateway] = useState<"moyasar" | null>(null);
   const [paymentAmount, setPaymentAmount] = useState("");
   const [selectedPlan, setSelectedPlan] = useState<SubscriptionPlanId | null>(() => {
     return getPlanFromUrl();
   });
+
+  const backendOrigin = import.meta.env.VITE_BACKEND_ORIGIN ?? "";
+  const moyasarPublishableKey = import.meta.env.VITE_MOYASAR_PUBLISHABLE_KEY ?? "";
+  const moyasarContainerRef = useRef<HTMLDivElement | null>(null);
+
+  const selectedPlanDetails = useMemo(() => {
+    if (!selectedPlan) return null;
+    return subscriptionPlans.find((p) => p.id === selectedPlan) ?? null;
+  }, [selectedPlan]);
 
   useEffect(() => {
     if (!selectedPlan) return;
@@ -107,43 +123,88 @@ export default function Payments() {
   const { data: invoices } = trpc.invoices.list.useQuery();
   const { data: invoiceStats } = trpc.invoices.stats.useQuery();
 
-  const activateSubscription = trpc.subscriptions.activate.useMutation({
+  const activatePaid = trpc.subscriptions.activatePaid.useMutation({
     onSuccess: () => {
-      toast.success(
-        "تم تفعيل اشتراكك الشهري بنجاح. يمكنك الآن استخدام المساعد القانوني الذكي.",
-      );
+      toast.success("تم تفعيل اشتراكك السنوي بنجاح.");
+      setLocation("/dashboard");
     },
     onError: (error) => {
-      toast.error(error.message || "حدث خطأ أثناء تفعيل الاشتراك. يرجى المحاولة مرة أخرى.");
+      toast.error(error.message || "تعذر تأكيد الدفع. يرجى التواصل مع الدعم.");
     },
   });
 
+  // Handle Moyasar redirect callback
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const qs = new URLSearchParams(window.location.search);
+    const paymentId = qs.get("id");
+    const status = qs.get("status");
+    const planFromUrl = getPlanFromUrl();
+    const planToActivate = planFromUrl ?? selectedPlan;
+    if (!paymentId || !status) return;
+    if (!planToActivate) return;
+
+    if (status !== "paid" && status !== "captured") {
+      toast.error("لم يتم إتمام الدفع.");
+      return;
+    }
+
+    activatePaid.mutate({ plan: planToActivate, paymentId });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPlan]);
+
+  // Init Moyasar payment form when plan is selected
+  useEffect(() => {
+    if (!selectedPlanDetails) return;
+    if (!moyasarPublishableKey) return;
+    if (!moyasarContainerRef.current) return;
+    if (typeof window === "undefined") return;
+    if (!window.Moyasar?.init) return;
+
+    moyasarContainerRef.current.innerHTML = "";
+
+    const amountHalalas = selectedPlanDetails.price * 100;
+    const callbackUrl = `${window.location.origin}/payments?plan=${encodeURIComponent(
+      selectedPlanDetails.id
+    )}`;
+
+    window.Moyasar.init({
+      element: moyasarContainerRef.current,
+      amount: amountHalalas,
+      currency: "SAR",
+      description: `اشتراك سنوي - ${selectedPlanDetails.name}`,
+      metadata: {
+        plan: selectedPlanDetails.id,
+      },
+      publishable_api_key: moyasarPublishableKey,
+      callback_url: callbackUrl,
+      supported_networks: ["visa", "mastercard", "mada"],
+      methods: ["creditcard", "applepay"],
+      language: "ar",
+      apple_pay: {
+        country: "SA",
+        label: "موازين",
+        validate_merchant_url: "https://api.moyasar.com/v1/applepay/initiate",
+      },
+      on_failure: function () {
+        toast.error("تعذر بدء الدفع. حاول مرة أخرى.");
+      },
+    });
+  }, [moyasarPublishableKey, selectedPlanDetails]);
+
   const paymentGateways = [
     {
-      id: "stripe",
-      name: "Stripe",
+      id: "moyasar",
+      name: "Moyasar",
       icon: CreditCard,
-      description: "بطاقات ائتمان وتحويلات بنكية",
+      description: "Visa / mada / Apple Pay",
       features: [
-        "بطاقات Visa و Mastercard",
-        "تحويلات بنكية مباشرة",
-        "محفظة رقمية",
-        "دعم عملات متعددة",
+        "دعم Visa و Mastercard و mada",
+        "Apple Pay على أجهزة Apple المدعومة",
+        "الأسعار بالريال السعودي",
+        "3D Secure عند الحاجة",
       ],
-      status: "قيد الإعداد",
-    },
-    {
-      id: "stc",
-      name: "STC Pay",
-      icon: Smartphone,
-      description: "محفظة STC الرقمية",
-      features: [
-        "دفع فوري من STC Pay",
-        "رسوم منخفضة",
-        "تحويل أموال سريع",
-        "دعم جميع العملاء السعوديين",
-      ],
-      status: "قيد الإعداد",
+      status: "متاح",
     },
   ];
 
@@ -155,21 +216,6 @@ export default function Payments() {
   const successRate = invoiceStats?.total
     ? ((invoiceStats.paid / invoiceStats.total) * 100).toFixed(1)
     : "0.0";
-
-  const handlePayment = () => {
-    if (!selectedGateway || !paymentAmount) {
-      toast.error("يرجى اختيار طريقة الدفع وإدخال المبلغ");
-      return;
-    }
-
-    if (!selectedPlan) {
-      toast.error("يرجى اختيار خطة الاشتراك أولاً");
-      return;
-    }
-
-    // هنا يتم تفعيل الاشتراك الشهري داخل النظام بعد إتمام الدفع عبر البوابة
-    activateSubscription.mutate({ plan: selectedPlan });
-  };
 
   return (
     <DashboardLayout>
@@ -187,9 +233,9 @@ export default function Payments() {
 
         {/* Subscription Plans */}
         <div>
-          <h2 className="text-xl font-bold text-foreground mb-2">خطط الاشتراك الشهرية</h2>
+          <h2 className="text-xl font-bold text-foreground mb-2">خطط الاشتراك السنوية</h2>
           <p className="text-sm text-muted-foreground mb-4">
-            اختر خطة الاشتراك، وجميع الأسعار بالريال السعودي شهرياً.
+            اختر خطة الاشتراك، وجميع الأسعار بالريال السعودي سنوياً.
           </p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {subscriptionPlans.map((plan) => {
@@ -204,6 +250,7 @@ export default function Payments() {
                   onClick={() => {
                     setSelectedPlan(plan.id);
                     setPaymentAmount(String(plan.price));
+                    setSelectedGateway("moyasar");
                   }}
                 >
                   {isPopular && (
@@ -241,7 +288,7 @@ export default function Payments() {
         <div>
           <h2 className="text-xl font-bold text-foreground mb-4">طرق الدفع المتاحة</h2>
           <p className="text-sm text-muted-foreground mb-4">
-            ملاحظة: بوابات الدفع ظاهرة للتهيئة والعرض فقط، وقد لا تكون مفعّلة في بيئة الإنتاج.
+            أكمل الدفع لتفعيل اشتراكك السنوي بشكل تلقائي.
           </p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {paymentGateways.map((gateway) => {
@@ -254,7 +301,7 @@ export default function Payments() {
                       ? "border-gold ring-2 ring-gold/50"
                       : "hover:border-gold/50"
                   }`}
-                  onClick={() => setSelectedGateway(gateway.id as "stripe" | "stc")}
+                  onClick={() => setSelectedGateway("moyasar")}
                 >
                   <CardHeader>
                     <div className="flex items-start justify-between">
@@ -269,7 +316,7 @@ export default function Payments() {
                           </p>
                         </div>
                       </div>
-                      <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30">
+                      <Badge className="bg-green-500/20 text-green-400 border-green-500/30">
                         {gateway.status}
                       </Badge>
                     </div>
@@ -293,72 +340,57 @@ export default function Payments() {
           </div>
         </div>
 
-        {/* Payment Form */}
-        {selectedGateway && (
+        {/* Moyasar Form */}
+        {selectedPlan && selectedGateway === "moyasar" && (
           <Card className="card-gold">
             <CardHeader>
-              <CardTitle>إنشاء دفعة جديدة</CardTitle>
+              <CardTitle className="flex items-center justify-between gap-3">
+                <span>إتمام الدفع</span>
+                <span className="text-sm font-semibold text-gold">
+                  {paymentAmount ? `${Number(paymentAmount).toLocaleString("ar-SA")} ر.س سنويًا` : ""}
+                </span>
+              </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <CardContent className="space-y-4">
+              {!moyasarPublishableKey ? (
+                <div className="text-sm text-muted-foreground">
+                  لم يتم إعداد مفاتيح Moyasar بعد. أضف المتغير <span className="font-mono">VITE_MOYASAR_PUBLISHABLE_KEY</span>.
+                </div>
+              ) : null}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-foreground mb-2 block">الخطة</Label>
+                  <Input
+                    value={selectedPlanDetails?.name ?? ""}
+                    readOnly
+                    className="bg-secondary/50 border-border/50"
+                  />
+                </div>
                 <div>
                   <Label className="text-foreground mb-2 block">المبلغ (ر.س)</Label>
                   <Input
-                    type="number"
-                    placeholder="أدخل المبلغ"
                     value={paymentAmount}
-                    onChange={(e) => setPaymentAmount(e.target.value)}
-                    className="bg-secondary/50 border-border/50"
-                  />
-                </div>
-                <div>
-                  <Label className="text-foreground mb-2 block">رقم الفاتورة</Label>
-                  <Input
-                    type="text"
-                    placeholder="مثال: INV-2024-001"
+                    readOnly
                     className="bg-secondary/50 border-border/50"
                   />
                 </div>
               </div>
 
-              <div className="p-4 bg-secondary/50 rounded-lg border border-border/50">
-                <div className="flex items-center justify-between mb-4">
-                  <span className="text-muted-foreground">المبلغ الإجمالي:</span>
-                  <span className="text-2xl font-bold text-gold">
-                    {paymentAmount ? `${paymentAmount} ر.س` : "0 ر.س"}
-                  </span>
-                </div>
-                {selectedPlan && (
-                  <div className="flex items-center justify-between text-xs text-muted-foreground mb-2">
-                    <span>الخطة المختارة:</span>
-                    <span className="font-medium">
-                      {subscriptionPlans.find((p) => p.id === selectedPlan)?.name}
-                    </span>
-                  </div>
-                )}
-                <div className="flex items-center justify-between text-sm text-muted-foreground">
-                  <span>طريقة الدفع:</span>
-                  <span className="font-medium">
-                    {selectedGateway === "stripe" ? "Stripe" : "STC Pay"}
-                  </span>
-                </div>
+              <div className="rounded-xl border border-border/50 bg-secondary/20 p-4">
+                <div ref={moyasarContainerRef} className="mysr-form" />
               </div>
 
-              <div className="flex gap-4">
-                <Button
-                  className="flex-1 bg-gold hover:bg-gold-light text-black font-semibold"
-                  onClick={handlePayment}
-                  disabled={activateSubscription.isPending}
-                >
-                  <ArrowRight className="h-4 w-4 ml-2" />
-                  متابعة الدفع
-                </Button>
+              <div className="flex gap-3">
                 <Button
                   variant="outline"
                   className="flex-1 border-gold/30 hover:border-gold/50"
-                  onClick={() => setSelectedGateway(null)}
+                  onClick={() => {
+                    const target = backendOrigin ? `${backendOrigin}/api/local-login` : "/api/local-login";
+                    window.location.href = target;
+                  }}
                 >
-                  إلغاء
+                  <ArrowRight className="h-4 w-4 ml-2" />
+                  مساعدة في تسجيل الدخول
                 </Button>
               </div>
             </CardContent>
