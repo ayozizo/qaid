@@ -394,6 +394,18 @@
     box-shadow: var(--glass-shadow), var(--glass-inner);
     position: relative;
     overflow: hidden;
+    transition: transform 260ms ease, box-shadow 260ms ease, border-color 260ms ease;
+    will-change: transform, box-shadow;
+  }
+
+  .glass:hover {
+    border-color: color-mix(in srgb, var(--gold) 18%, var(--glass-border));
+    box-shadow: 0 30px 90px rgba(0, 48, 73, 0.16), var(--glass-inner);
+  }
+
+  .glass:focus-within {
+    border-color: color-mix(in srgb, var(--gold) 28%, var(--glass-border));
+    box-shadow: 0 34px 100px rgba(0, 48, 73, 0.18), var(--glass-inner);
   }
 
   .glass::before,
